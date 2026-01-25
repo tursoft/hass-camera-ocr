@@ -1,0 +1,4089 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Camera OCR</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        :root {
+            --primary: #03a9f4;
+            --primary-dark: #0288d1;
+            --success: #4caf50;
+            --warning: #ff9800;
+            --error: #f44336;
+            --bg-1: #0d1117;
+            --bg-2: #161b22;
+            --bg-3: #21262d;
+            --bg-4: #30363d;
+            --border: #30363d;
+            --text-1: #f0f6fc;
+            --text-2: #8b949e;
+            --text-3: #6e7681;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-1);
+            color: var(--text-1);
+            min-height: 100vh;
+        }
+
+        /* Layout */
+        .app { display: flex; flex-direction: column; min-height: 100vh; }
+
+        .header {
+            background: var(--bg-2);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .logo svg { width: 24px; height: 24px; color: var(--primary); }
+
+        .nav {
+            display: flex;
+            gap: 4px;
+        }
+
+        .nav-btn {
+            padding: 8px 16px;
+            border: none;
+            background: transparent;
+            color: var(--text-2);
+            cursor: pointer;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.15s;
+        }
+
+        .nav-btn:hover { background: var(--bg-3); color: var(--text-1); }
+        .nav-btn.active { background: var(--primary); color: white; }
+
+        .main { flex: 1; padding: 20px; max-width: 1600px; margin: 0 auto; width: 100%; }
+
+        .page { display: none; }
+        .page.active { display: block; animation: fadeIn 0.2s; }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Cards */
+        .card {
+            background: var(--bg-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Grid */
+        .grid { display: grid; gap: 16px; }
+        .grid-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+        .grid-3 { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+
+        /* Dashboard Cards */
+        .value-card {
+            background: var(--bg-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .value-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+
+        .value-card-name { font-size: 14px; color: var(--text-2); font-weight: 500; }
+        .value-card-status { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+        .value-card-status.ok { background: rgba(76, 175, 80, 0.2); color: var(--success); }
+        .value-card-status.error { background: rgba(244, 67, 54, 0.2); color: var(--error); }
+        .value-card-status.pending { background: rgba(255, 193, 7, 0.2); color: #ffc107; }
+
+        .value-card-value {
+            font-size: 42px;
+            font-weight: 700;
+            line-height: 1;
+            margin-bottom: 8px;
+        }
+
+        .value-card-unit { font-size: 18px; color: var(--text-2); margin-left: 4px; }
+        .value-card-meta { font-size: 12px; color: var(--text-3); }
+        .value-card-description {
+            font-size: 12px;
+            color: var(--text-2);
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+            font-style: italic;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-dark); }
+        .btn-secondary { background: var(--bg-3); color: var(--text-1); }
+        .btn-secondary:hover { background: var(--bg-4); }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: var(--error); color: white; }
+        .btn-sm { padding: 6px 12px; font-size: 13px; }
+        .btn-icon { padding: 8px; }
+
+        .btn svg { width: 16px; height: 16px; }
+
+        /* Forms */
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--text-2); }
+
+        .form-input, .form-select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg-3);
+            color: var(--text-1);
+            font-size: 14px;
+        }
+
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+        }
+
+        .form-check {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .form-check input { width: 16px; height: 16px; }
+
+        /* URL Mode Toggle */
+        .url-mode-toggle {
+            display: flex;
+            gap: 0;
+            margin-top: 8px;
+        }
+        .url-mode-btn {
+            flex: 1;
+            padding: 8px 16px;
+            border: 1px solid var(--border);
+            background: var(--card-bg);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .url-mode-btn:first-child {
+            border-radius: 6px 0 0 6px;
+        }
+        .url-mode-btn:last-child {
+            border-radius: 0 6px 6px 0;
+            border-left: none;
+        }
+        .url-mode-btn:hover {
+            background: var(--bg);
+        }
+        .url-mode-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+        .form-hint {
+            display: block;
+            margin-top: 4px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        .url-preview {
+            background: var(--bg);
+            border-radius: 6px;
+            padding: 12px;
+            border: 1px solid var(--border);
+        }
+        .url-preview-text {
+            font-family: monospace;
+            font-size: 12px;
+            color: var(--primary);
+            word-break: break-all;
+        }
+
+        /* Preview Container */
+        .preview-container {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 20px;
+            min-height: 500px;
+        }
+
+        .preview-main {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        @media (max-width: 1000px) {
+            .preview-container { grid-template-columns: 1fr; }
+        }
+
+        .preview-frame {
+            background: var(--bg-3);
+            border-radius: 8px;
+            overflow: auto;
+            position: relative;
+            max-height: 500px;
+            flex-shrink: 0;
+        }
+
+        .preview-wrapper {
+            position: relative;
+            display: inline-block;
+            transform-origin: top left;
+        }
+
+        .preview-frame img {
+            display: block;
+            max-width: none;
+        }
+
+        .preview-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: crosshair;
+        }
+
+        .saved-rois-section {
+            margin-top: 12px;
+            padding: 12px;
+            background: var(--card-bg);
+            border-radius: 8px;
+        }
+
+        .saved-rois-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            font-weight: 500;
+            color: var(--text-2);
+        }
+
+        .saved-rois-list {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .saved-roi-item {
+            position: relative;
+            width: 120px;
+            background: var(--bg);
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .saved-roi-item img {
+            width: 100%;
+            height: 80px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .saved-roi-info {
+            padding: 6px;
+            font-size: 11px;
+        }
+
+        .saved-roi-value {
+            font-weight: 600;
+            color: var(--primary);
+            font-size: 14px;
+        }
+
+        .saved-roi-time {
+            color: var(--text-3);
+            margin-top: 2px;
+        }
+
+        .saved-roi-item.validated {
+            border-color: var(--success);
+        }
+
+        .validated-badge {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            background: var(--success);
+            color: #fff;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            z-index: 2;
+        }
+
+        .saved-roi-delete {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 20px;
+            height: 20px;
+            border: none;
+            background: rgba(244, 67, 54, 0.9);
+            color: white;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            line-height: 1;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .saved-roi-item:hover .saved-roi-delete {
+            opacity: 1;
+        }
+
+        .saved-roi-delete:hover {
+            background: var(--error);
+        }
+
+        .saved-roi-buttons {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            display: flex;
+            gap: 4px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .saved-roi-item:hover .saved-roi-buttons {
+            opacity: 1;
+        }
+
+        .saved-roi-apply, .saved-roi-test {
+            width: 24px;
+            height: 24px;
+            padding: 0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .saved-roi-apply {
+            background: rgba(76, 175, 80, 0.9);
+            color: white;
+        }
+
+        .saved-roi-test {
+            background: rgba(33, 150, 243, 0.9);
+            color: white;
+        }
+
+        .saved-roi-apply:hover {
+            background: var(--success);
+        }
+
+        .saved-roi-test:hover {
+            background: var(--primary);
+        }
+
+        .zoom-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 4px;
+            z-index: 10;
+            background: rgba(0,0,0,0.7);
+            border-radius: 6px;
+            padding: 4px;
+        }
+
+        .zoom-btn {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: var(--card-bg);
+            color: var(--text);
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .zoom-btn:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        .ptz-controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            margin-left: 8px;
+            padding-left: 8px;
+            border-left: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .ptz-row {
+            display: flex;
+            gap: 2px;
+        }
+
+        .ptz-btn {
+            width: 28px;
+            height: 28px;
+            font-size: 14px;
+        }
+
+        .ptz-home {
+            font-size: 16px;
+        }
+
+        .zoom-level {
+            color: white;
+            font-size: 12px;
+            padding: 0 8px;
+            display: flex;
+            align-items: center;
+        }
+
+        .preview-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 400px;
+            color: var(--text-3);
+        }
+
+        .preview-placeholder svg { width: 64px; height: 64px; margin-bottom: 16px; opacity: 0.5; }
+
+        .preview-sidebar { display: flex; flex-direction: column; gap: 16px; }
+
+        /* ROI Display */
+        .roi-display {
+            background: var(--bg-3);
+            border-radius: 6px;
+            padding: 12px;
+        }
+
+        .roi-values {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .roi-value {
+            background: var(--bg-2);
+            padding: 8px;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .roi-value-label { font-size: 11px; color: var(--text-3); text-transform: uppercase; }
+        .roi-value-num { font-size: 18px; font-weight: 600; font-family: monospace; }
+
+        /* Result Display */
+        .result-display {
+            background: var(--bg-3);
+            border-radius: 6px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .result-value { font-size: 48px; font-weight: 700; color: var(--success); }
+        .result-raw { font-size: 13px; color: var(--text-3); margin-top: 8px; }
+        .result-confidence { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+
+        /* Camera List */
+        .camera-item {
+            background: var(--bg-3);
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .camera-item-preview {
+            width: 120px;
+            height: 80px;
+            background: var(--bg-2);
+            border-radius: 6px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        .camera-item-preview img { width: 100%; height: 100%; object-fit: cover; }
+
+        .camera-item-info { flex: 1; min-width: 0; }
+        .camera-item-name { font-weight: 600; margin-bottom: 4px; }
+        .camera-item-url { font-size: 13px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .camera-item-actions { display: flex; gap: 8px; }
+
+        /* Discovery */
+        .discovery-item {
+            background: var(--bg-3);
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .discovery-item-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+        }
+        .discovery-item-info h4 { font-size: 15px; margin-bottom: 4px; }
+        .discovery-item-info p { font-size: 13px; color: var(--text-3); }
+        .discovery-item-preview {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: var(--bg);
+            border-radius: 6px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        .discovery-item-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .discovery-item-preview .preview-placeholder {
+            color: var(--text-3);
+            font-size: 12px;
+            text-align: center;
+            height: auto;
+            padding: 20px;
+        }
+        .discovery-item-preview .preview-placeholder svg {
+            width: 48px;
+            height: 48px;
+            margin-bottom: 8px;
+            opacity: 0.4;
+        }
+        .discovery-item-preview .preview-error {
+            color: var(--text-3);
+            font-size: 11px;
+            text-align: center;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        .discovery-item-preview .preview-error svg {
+            width: 40px;
+            height: 40px;
+            opacity: 0.3;
+        }
+        .discovery-item-preview .preview-error small {
+            opacity: 0.7;
+        }
+        .discovery-item-actions {
+            display: flex;
+            gap: 8px;
+            width: 100%;
+        }
+        .discovery-item-actions .btn {
+            flex: 1;
+        }
+
+        /* Template List */
+        .template-item {
+            background: var(--bg-3);
+            border-radius: 8px;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .template-preview {
+            width: 80px;
+            height: 60px;
+            background: var(--bg-2);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .template-preview img { width: 100%; height: 100%; object-fit: contain; }
+        .template-info { flex: 1; }
+        .template-name { font-weight: 500; margin-bottom: 2px; }
+        .template-meta { font-size: 12px; color: var(--text-3); }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active { display: flex; }
+
+        .modal-content {
+            background: var(--bg-2);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .modal-title { font-size: 18px; font-weight: 600; }
+        .modal-close { background: none; border: none; color: var(--text-2); cursor: pointer; padding: 4px; }
+        .modal-close:hover { color: var(--text-1); }
+        .modal-body { padding: 20px; }
+        .modal-footer { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+
+        /* Toast */
+        .toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            background: var(--bg-3);
+            border: 1px solid var(--border);
+            padding: 12px 16px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: slideIn 0.2s;
+            min-width: 250px;
+        }
+
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        .toast.success { border-left: 3px solid var(--success); }
+        .toast.error { border-left: 3px solid var(--error); }
+        .toast.info { border-left: 3px solid var(--primary); }
+
+        /* Live indicator */
+        .live-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(244, 67, 54, 0.2);
+            color: var(--error);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .live-badge::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: var(--error);
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        .live-badge.paused {
+            background: rgba(128, 128, 128, 0.2);
+            color: var(--text-secondary);
+        }
+        .live-badge.paused::before {
+            background: var(--text-secondary);
+            animation: none;
+        }
+        .live-controls {
+            display: inline-flex;
+            margin-left: 8px;
+            gap: 4px;
+        }
+        .live-btn {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .live-btn:hover {
+            background: var(--bg-2);
+            color: var(--text);
+        }
+
+        /* History table */
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .history-table th, .history-table td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        .history-table th {
+            background: var(--bg);
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        .history-table tr:hover {
+            background: var(--bg);
+        }
+        .history-table td.value-cell {
+            font-weight: 600;
+            color: var(--primary);
+            text-align: right;
+        }
+        .history-table td.value-cell span {
+            font-weight: 600;
+        }
+        .history-table th.value-header {
+            text-align: right;
+        }
+        .history-table .order-cell,
+        .history-table th.order-header {
+            width: 40px;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        .history-table .error-cell {
+            color: var(--error);
+        }
+        .low-confidence {
+            color: var(--error) !important;
+        }
+        .low-confidence-text {
+            font-size: 11px;
+            color: var(--error);
+            opacity: 0.8;
+        }
+        .confidence-bar {
+            width: 80px;
+            height: 8px;
+            background: var(--bg);
+            border-radius: 4px;
+            overflow: hidden;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .confidence-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+        .confidence-bar-fill.high { background: var(--success); }
+        .confidence-bar-fill.medium { background: var(--warning, #f59e0b); }
+        .confidence-bar-fill.low { background: var(--error); }
+        .confidence-text {
+            display: inline-block;
+            width: 35px;
+            text-align: right;
+            margin-right: 8px;
+            font-size: 12px;
+        }
+        .history-thumbnail {
+            width: 50px;
+            height: 35px;
+            object-fit: cover;
+            border-radius: 4px;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .history-thumbnail:hover {
+            transform: scale(1.1);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .history-thumbnail-placeholder {
+            width: 50px;
+            height: 35px;
+            background: var(--bg);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-3);
+            font-size: 10px;
+        }
+        .history-detail-dialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1001;
+            padding: 20px;
+        }
+        .history-detail-content {
+            background: var(--card-bg);
+            border-radius: 12px;
+            max-width: 600px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .history-detail-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .history-detail-header h3 {
+            margin: 0;
+            font-size: 16px;
+        }
+        .history-detail-body {
+            padding: 20px;
+        }
+        .history-detail-image {
+            width: 100%;
+            max-height: 300px;
+            object-fit: contain;
+            border-radius: 8px;
+            background: var(--bg);
+            margin-bottom: 16px;
+        }
+        .history-detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .history-detail-item {
+            background: var(--bg);
+            padding: 12px;
+            border-radius: 6px;
+        }
+        .history-detail-item label {
+            font-size: 11px;
+            color: var(--text-3);
+            text-transform: uppercase;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .history-detail-item .value {
+            font-size: 15px;
+            font-weight: 600;
+        }
+        .history-detail-item.full-width {
+            grid-column: 1 / -1;
+        }
+        .history-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .history-tab {
+            padding: 6px 14px;
+            border: 1px solid var(--border);
+            background: var(--card-bg);
+            color: var(--text-secondary);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .history-tab:hover {
+            background: var(--bg);
+        }
+        .history-tab.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-3);
+        }
+
+        .empty-state svg { width: 64px; height: 64px; margin-bottom: 16px; opacity: 0.5; }
+        .empty-state h3 { font-size: 18px; color: var(--text-2); margin-bottom: 8px; }
+        .empty-state p { font-size: 14px; margin-bottom: 20px; }
+
+        /* Loading */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--bg-4);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Status bar */
+        .status-bar {
+            background: var(--bg-2);
+            border-top: 1px solid var(--border);
+            padding: 8px 20px;
+            font-size: 12px;
+            color: var(--text-3);
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .status-item { display: flex; align-items: center; gap: 6px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .status-dot.online { background: var(--success); }
+        .status-dot.offline { background: var(--error); }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <div class="logo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                    <circle cx="12" cy="13" r="4"></circle>
+                </svg>
+                Camera OCR
+                <span style="font-size: 11px; color: var(--text-3); font-weight: 400; margin-left: 8px;">v{{ version }}</span>
+            </div>
+            <nav class="nav">
+                <button class="nav-btn active" data-page="dashboard">Dashboard</button>
+                <button class="nav-btn" data-page="cameras">Cameras</button>
+                <button class="nav-btn" data-page="live">Live Preview</button>
+                <button class="nav-btn" data-page="templates">Templates</button>
+                <button class="nav-btn" data-page="discover">Discover</button>
+                <button class="nav-btn" data-page="ai-settings">AI Settings</button>
+            </nav>
+        </header>
+
+        <main class="main">
+            <!-- Dashboard Page -->
+            <div id="page-dashboard" class="page active">
+                <div class="card">
+                    <div class="card-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                            <rect x="3" y="3" width="7" height="7"></rect>
+                            <rect x="14" y="3" width="7" height="7"></rect>
+                            <rect x="14" y="14" width="7" height="7"></rect>
+                            <rect x="3" y="14" width="7" height="7"></rect>
+                        </svg>
+                        Extracted Values
+                        <span class="live-badge" id="live-badge">LIVE</span>
+                        <div class="live-controls">
+                            <button class="live-btn" id="pause-btn" onclick="toggleLiveUpdates()" title="Pause updates">
+                                <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                                    <rect x="6" y="4" width="4" height="16"></rect>
+                                    <rect x="14" y="4" width="4" height="16"></rect>
+                                </svg>
+                            </button>
+                            <button class="live-btn" id="resume-btn" onclick="toggleLiveUpdates()" title="Resume updates" style="display: none;">
+                                <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                                    <polygon points="5,3 19,12 5,21"></polygon>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="values-grid" class="grid grid-3">
+                        <div class="empty-state">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                <circle cx="12" cy="13" r="4"></circle>
+                            </svg>
+                            <h3>No cameras configured</h3>
+                            <p>Add cameras to start extracting values</p>
+                            <button class="btn btn-primary" onclick="showPage('cameras')">Add Camera</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Value History Section -->
+                <div class="card" style="margin-top: 20px;">
+                    <div class="card-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                        </svg>
+                        Value History (Last 20 readings)
+                    </div>
+                    <div id="history-container">
+                        <p style="color: var(--text-3);">No history available yet</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cameras Page -->
+            <div id="page-cameras" class="page">
+                <div class="card">
+                    <div class="card-title" style="justify-content: space-between;">
+                        <span>Configured Cameras</span>
+                        <button class="btn btn-primary" onclick="openAddCameraModal()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                <line x1="12" y1="5" x2="12" y2="19"></line>
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                            </svg>
+                            Add Camera
+                        </button>
+                    </div>
+                    <div id="cameras-list" class="grid"></div>
+                </div>
+            </div>
+
+            <!-- Live Preview Page -->
+            <div id="page-live" class="page">
+                <div class="card">
+                    <div class="card-title">Live Preview & ROI Selection</div>
+                    <div class="form-row" style="margin-bottom: 16px;">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Select Camera</label>
+                            <select id="live-camera-select" class="form-select" onchange="loadLivePreview()">
+                                <option value="">-- Select a camera --</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Preprocessing</label>
+                            <select id="live-preprocessing" class="form-select">
+                                <option value="auto">Auto</option>
+                                <option value="none">None</option>
+                                <option value="threshold">Threshold</option>
+                                <option value="adaptive">Adaptive</option>
+                                <option value="invert">Invert</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="display: flex; align-items: flex-end; gap: 8px;">
+                            <button class="btn btn-primary" onclick="refreshLivePreview()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                    <polyline points="23 4 23 10 17 10"></polyline>
+                                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                </svg>
+                                Refresh
+                            </button>
+                            <button class="btn btn-secondary" onclick="editSelectedCamera()" title="Edit camera settings">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                </svg>
+                                Edit
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="preview-container">
+                        <div class="preview-main">
+                            <div class="preview-frame" id="preview-frame">
+                                <div class="preview-placeholder" id="preview-placeholder">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                        <circle cx="12" cy="13" r="4"></circle>
+                                    </svg>
+                                    <p>Select a camera and click Refresh to load preview</p>
+                                </div>
+                                <div class="zoom-controls" id="zoom-controls" style="display: none;">
+                                    <button class="zoom-btn" onclick="zoomOut()" title="Zoom Out">−</button>
+                                    <span class="zoom-level" id="zoom-level">100%</span>
+                                    <button class="zoom-btn" onclick="zoomIn()" title="Zoom In">+</button>
+                                    <button class="zoom-btn" onclick="resetZoom()" title="Reset Zoom">⟲</button>
+                                    <div class="ptz-controls">
+                                        <button class="zoom-btn ptz-btn" onclick="ptzMove('up')" title="Tilt Up">▲</button>
+                                        <div class="ptz-row">
+                                            <button class="zoom-btn ptz-btn" onclick="ptzMove('left')" title="Pan Left">◄</button>
+                                            <button class="zoom-btn ptz-btn ptz-home" onclick="ptzMove('home')" title="Home">⌂</button>
+                                            <button class="zoom-btn ptz-btn" onclick="ptzMove('right')" title="Pan Right">►</button>
+                                        </div>
+                                        <button class="zoom-btn ptz-btn" onclick="ptzMove('down')" title="Tilt Down">▼</button>
+                                    </div>
+                                </div>
+                                <div class="preview-wrapper" id="preview-wrapper">
+                                    <img id="preview-image" style="display: none;" />
+                                    <canvas id="preview-canvas" class="preview-canvas" style="display: none;"></canvas>
+                                </div>
+                            </div>
+
+                            <!-- Saved ROIs Section - Outside scrollable area -->
+                            <div class="saved-rois-section" id="saved-rois-section" style="display: none;">
+                                <div class="saved-rois-header">
+                                    <span>Saved ROIs</span>
+                                    <div style="display: flex; gap: 8px;">
+                                        <button class="btn btn-sm" onclick="trainOCR()" id="train-ocr-btn" style="background: var(--warning); color: #000;" title="Train OCR using validated ROIs">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="margin-right: 4px;">
+                                                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                                                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+                                            </svg>
+                                            Train OCR
+                                        </button>
+                                        <button class="btn btn-primary btn-sm" onclick="testAllROIs()" id="test-all-btn">Test All</button>
+                                        <button class="btn btn-success btn-sm" onclick="saveCurrentROI()">Save Current</button>
+                                    </div>
+                                </div>
+                                <div class="saved-rois-list" id="saved-rois-list"></div>
+                            </div>
+                        </div>
+
+                        <div class="preview-sidebar">
+                            <div class="card" style="margin: 0;">
+                                <div class="card-title">Region of Interest (ROI)</div>
+                                <p style="font-size: 13px; color: var(--text-3); margin-bottom: 12px;">
+                                    Click and drag on the image to select the area containing the value you want to extract.
+                                </p>
+                                <div class="roi-display">
+                                    <div class="roi-values">
+                                        <div class="roi-value">
+                                            <div class="roi-value-label">X</div>
+                                            <div class="roi-value-num" id="roi-x">0</div>
+                                        </div>
+                                        <div class="roi-value">
+                                            <div class="roi-value-label">Y</div>
+                                            <div class="roi-value-num" id="roi-y">0</div>
+                                        </div>
+                                        <div class="roi-value">
+                                            <div class="roi-value-label">Width</div>
+                                            <div class="roi-value-num" id="roi-w">0</div>
+                                        </div>
+                                        <div class="roi-value">
+                                            <div class="roi-value-label">Height</div>
+                                            <div class="roi-value-num" id="roi-h">0</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 12px; display: flex; gap: 8px;">
+                                    <button class="btn btn-secondary btn-sm" onclick="clearROI()">Clear</button>
+                                    <button class="btn btn-primary btn-sm" onclick="testExtraction()">Test Extract</button>
+                                </div>
+                            </div>
+
+                            <div class="card" style="margin: 0;">
+                                <div class="card-title">Extraction Result</div>
+                                <div class="result-display" id="result-display">
+                                    <div id="result-roi-preview" style="display: none; margin-bottom: 12px; border-radius: 6px; overflow: hidden; background: var(--bg);"></div>
+                                    <div class="result-value" id="result-value">--</div>
+                                    <div class="result-raw" id="result-raw">Draw ROI and click Test Extract</div>
+                                    <div class="result-confidence" id="result-confidence"></div>
+                                </div>
+                            </div>
+
+                            <div class="card" style="margin: 0;">
+                                <div class="card-title">Save as Template</div>
+                                <p style="font-size: 13px; color: var(--text-3); margin-bottom: 12px;">
+                                    Save this ROI as a template to track it even if the camera moves or rotates.
+                                </p>
+                                <div class="form-group">
+                                    <input type="text" id="template-name-input" class="form-input" placeholder="Template name">
+                                </div>
+                                <button class="btn btn-success btn-sm" onclick="saveTemplate()">Save Template</button>
+                            </div>
+
+                            <button class="btn btn-primary" onclick="applyROIToCamera()" style="width: 100%;">
+                                Save ROI to Camera
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Templates Page -->
+            <div id="page-templates" class="page">
+                <div class="card">
+                    <div class="card-title">Saved Templates</div>
+                    <p style="font-size: 13px; color: var(--text-3); margin-bottom: 16px;">
+                        Templates allow automatic tracking of the ROI even when the camera view changes, rotates, or moves.
+                    </p>
+                    <div id="templates-list" class="grid grid-3"></div>
+                </div>
+            </div>
+
+            <!-- Discover Page -->
+            <div id="page-discover" class="page">
+                <div class="card">
+                    <div class="card-title" style="justify-content: space-between;">
+                        <span>Network Discovery (ONVIF)</span>
+                        <button class="btn btn-primary" onclick="startDiscovery()" id="discover-btn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                            Scan Network
+                        </button>
+                    </div>
+                    <div id="discovery-list" class="grid grid-2">
+                        <div class="empty-state">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                            <h3>No cameras discovered</h3>
+                            <p>Click "Scan Network" to find ONVIF cameras</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Settings Page -->
+            <div id="page-ai-settings" class="page">
+                <div class="card">
+                    <div class="card-title">AI Provider Configuration</div>
+                    <p style="font-size: 13px; color: var(--text-3); margin-bottom: 16px;">
+                        Configure an AI provider to enhance OCR accuracy and generate video scene descriptions.
+                    </p>
+
+                    <div class="form-group">
+                        <label class="form-label">AI Provider</label>
+                        <select id="ai-provider" class="form-input" onchange="onAIProviderChange()">
+                            <option value="none">None (Disabled)</option>
+                            <optgroup label="AI Vision Models">
+                                <option value="openai">OpenAI (GPT-4o)</option>
+                                <option value="anthropic">Anthropic (Claude)</option>
+                                <option value="google">Google (Gemini)</option>
+                                <option value="ollama">Ollama (Local)</option>
+                                <option value="custom">Custom (OpenAI-compatible)</option>
+                            </optgroup>
+                            <optgroup label="Cloud OCR Services">
+                                <option value="google-vision">Google Cloud Vision</option>
+                                <option value="google-docai">Google Document AI</option>
+                                <option value="azure-ocr">Azure Computer Vision</option>
+                                <option value="aws-textract">AWS Textract</option>
+                            </optgroup>
+                        </select>
+                    </div>
+
+                    <div id="ai-config-fields" style="display: none;">
+                        <div class="form-group" id="ai-apikey-group">
+                            <label class="form-label">API Key</label>
+                            <input type="password" id="ai-apikey" class="form-input" placeholder="Enter API key">
+                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;">
+                                Your API key is stored locally and never shared.
+                            </p>
+                        </div>
+
+                        <div class="form-group" id="ai-url-group" style="display: none;">
+                            <label class="form-label" id="ai-url-label">API URL</label>
+                            <input type="text" id="ai-url" class="form-input" placeholder="http://localhost:11434">
+                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;" id="ai-url-hint">
+                                URL to your Ollama or compatible server.
+                            </p>
+                        </div>
+
+                        <div class="form-group" id="ai-region-group" style="display: none;">
+                            <label class="form-label">AWS Region</label>
+                            <input type="text" id="ai-region" class="form-input" placeholder="us-east-1">
+                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;">
+                                AWS region for Textract (e.g., us-east-1, eu-west-1)
+                            </p>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Model (optional)</label>
+                            <input type="text" id="ai-model" class="form-input" placeholder="Leave empty for default">
+                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;" id="ai-model-hint">
+                                Default: gpt-4o
+                            </p>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Features</label>
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="ai-enable-ocr">
+                                    <span>Use AI to enhance OCR accuracy</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="ai-enable-description">
+                                    <span>Generate video scene descriptions</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; margin-top: 16px;">
+                        <button class="btn btn-primary" onclick="saveAIConfig()">Save Configuration</button>
+                    </div>
+                </div>
+
+                <!-- Test AI Provider Section -->
+                <div class="card" id="ai-test-section" style="display: none;">
+                    <div class="card-title">Test AI Provider</div>
+                    <p style="font-size: 13px; color: var(--text-3); margin-bottom: 16px;">
+                        Test the configured AI/OCR provider with an image.
+                    </p>
+
+                    <div class="form-group">
+                        <label class="form-label">Image Source</label>
+                        <select id="ai-test-source" class="form-input" onchange="onAITestSourceChange()">
+                            <option value="upload">Upload Image</option>
+                            <option value="camera">Camera Live Preview</option>
+                        </select>
+                    </div>
+
+                    <div id="ai-test-upload-section">
+                        <div class="form-group">
+                            <label class="form-label">Select Image</label>
+                            <input type="file" id="ai-test-file" accept="image/*" class="form-input" onchange="onAITestFileSelect()">
+                        </div>
+                        <div id="ai-test-preview-upload" style="margin-bottom: 16px; display: none;">
+                            <img id="ai-test-preview-img" style="max-width: 100%; max-height: 200px; border-radius: 6px; border: 1px solid var(--border);">
+                        </div>
+                    </div>
+
+                    <div id="ai-test-camera-section" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label">Select Camera</label>
+                            <select id="ai-test-camera" class="form-input" onchange="onAITestCameraChange()">
+                                <option value="">-- Select Camera --</option>
+                            </select>
+                        </div>
+                        <div id="ai-test-preview-camera" style="margin-bottom: 16px; display: none;">
+                            <p style="font-size: 12px; color: var(--text-3); margin-bottom: 8px;">Camera Preview (ROI area highlighted):</p>
+                            <img id="ai-test-camera-img" style="max-width: 100%; max-height: 200px; border-radius: 6px; border: 1px solid var(--border);">
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" onclick="testAIProvider()" id="test-ai-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                        </svg>
+                        Test AI Provider
+                    </button>
+                </div>
+
+                <div class="card" id="ai-test-results" style="display: none;">
+                    <div class="card-title">Test Results</div>
+                    <div id="ai-test-content"></div>
+                </div>
+            </div>
+        </main>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-dot online" id="status-dot"></div>
+                <span id="status-text">Connected</span>
+            </div>
+            <div class="status-item">
+                <span id="camera-count">0 cameras</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Camera Modal -->
+    <div class="modal" id="camera-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="camera-modal-title">Add Camera</h3>
+                <button class="modal-close" onclick="closeCameraModal()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="camera-edit-name">
+                <div class="form-group">
+                    <label class="form-label">Camera Name *</label>
+                    <input type="text" id="camera-name" class="form-input" placeholder="e.g., Boiler Temperature">
+                </div>
+
+                <!-- URL Input Mode Toggle -->
+                <div class="form-group">
+                    <label class="form-label">Stream URL *</label>
+                    <div class="url-mode-toggle">
+                        <button type="button" class="url-mode-btn active" id="url-mode-full" onclick="setUrlMode('full')">Full URL</button>
+                        <button type="button" class="url-mode-btn" id="url-mode-build" onclick="setUrlMode('build')">Build URL</button>
+                    </div>
+                </div>
+
+                <!-- Full URL Input -->
+                <div class="form-group url-input-full" id="url-input-full">
+                    <input type="text" id="camera-url" class="form-input" placeholder="rtsp://192.168.1.100:554/stream1" oninput="parseUrlToFields()">
+                    <small class="form-hint">Enter full RTSP/HTTP URL (credentials will be extracted automatically)</small>
+                </div>
+
+                <!-- Build URL Inputs -->
+                <div class="url-input-build" id="url-input-build" style="display: none;">
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 0 0 100px;">
+                            <label class="form-label">Protocol</label>
+                            <select id="camera-protocol" class="form-select" onchange="buildUrlFromFields()">
+                                <option value="rtsp">RTSP</option>
+                                <option value="http">HTTP</option>
+                                <option value="https">HTTPS</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Host/IP *</label>
+                            <input type="text" id="camera-host" class="form-input" placeholder="192.168.1.100" oninput="buildUrlFromFields()">
+                        </div>
+                        <div class="form-group" style="flex: 0 0 80px;">
+                            <label class="form-label">Port</label>
+                            <input type="text" id="camera-port" class="form-input" placeholder="554" oninput="buildUrlFromFields()">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Stream Path</label>
+                        <input type="text" id="camera-path" class="form-input" placeholder="/stream1" oninput="buildUrlFromFields()">
+                        <small class="form-hint">Common paths: /stream1, /Streaming/Channels/101, /cam/realmonitor?channel=1&subtype=0</small>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Username</label>
+                        <input type="text" id="camera-username" class="form-input" oninput="buildUrlFromFields()">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Password</label>
+                        <input type="password" id="camera-password" class="form-input" oninput="buildUrlFromFields()">
+                    </div>
+                </div>
+
+                <!-- Generated URL Preview -->
+                <div class="form-group url-preview" id="url-preview" style="display: none;">
+                    <label class="form-label">Generated URL</label>
+                    <div class="url-preview-text" id="url-preview-text"></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Value Name</label>
+                        <input type="text" id="camera-value-name" class="form-input" placeholder="Temperature" value="Value">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Unit</label>
+                        <select id="camera-unit" class="form-select">
+                            <option value="">None</option>
+                            <option value="°C">°C (Celsius)</option>
+                            <option value="°F">°F (Fahrenheit)</option>
+                            <option value="K">K (Kelvin)</option>
+                            <option value="bar">bar (Pressure)</option>
+                            <option value="psi">psi (Pressure)</option>
+                            <option value="kPa">kPa (Pressure)</option>
+                            <option value="%">% (Percentage)</option>
+                            <option value="V">V (Voltage)</option>
+                            <option value="A">A (Amperage)</option>
+                            <option value="W">W (Watts)</option>
+                            <option value="kWh">kWh (Energy)</option>
+                            <option value="L">L (Liters)</option>
+                            <option value="m³">m³ (Cubic meters)</option>
+                            <option value="Hz">Hz (Frequency)</option>
+                            <option value="RPM">RPM (Rotation)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Min Value (Optional)</label>
+                        <input type="number" id="camera-min-value" class="form-input" placeholder="e.g., 0" step="any">
+                        <p style="font-size: 11px; color: var(--text-3); margin-top: 4px;">Ignore readings below this value</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Max Value (Optional)</label>
+                        <input type="number" id="camera-max-value" class="form-input" placeholder="e.g., 100" step="any">
+                        <p style="font-size: 11px; color: var(--text-3); margin-top: 4px;">Ignore readings above this value</p>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Preprocessing</label>
+                    <select id="camera-preprocessing" class="form-select">
+                        <option value="auto">Auto (Recommended)</option>
+                        <option value="none">None</option>
+                        <option value="threshold">Threshold</option>
+                        <option value="adaptive">Adaptive</option>
+                        <option value="invert">Invert</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Template (for auto-tracking)</label>
+                    <select id="camera-template" class="form-select">
+                        <option value="">None</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <div class="form-check">
+                        <input type="checkbox" id="camera-use-template">
+                        <label for="camera-use-template">Use template matching (auto-find ROI)</label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeCameraModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveCamera()">Save Camera</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toast-container"></div>
+
+    <script>
+        // State
+        let cameras = {};
+        let values = {};
+        let templates = [];
+        let currentROI = { x: 0, y: 0, width: 0, height: 0 };
+        let isDrawing = false;
+        let startX, startY;
+        let previewImage = null;
+        let imageScale = 1;
+        let zoomLevel = 1;
+        let liveUpdateInterval = null;
+        let isLivePaused = false;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadData();
+            startLiveUpdates();
+            setupCanvas();
+            setupZoomWheel();
+        });
+
+        function startLiveUpdates() {
+            if (liveUpdateInterval) clearInterval(liveUpdateInterval);
+            liveUpdateInterval = setInterval(loadValues, 5000);
+        }
+
+        function stopLiveUpdates() {
+            if (liveUpdateInterval) {
+                clearInterval(liveUpdateInterval);
+                liveUpdateInterval = null;
+            }
+        }
+
+        function toggleLiveUpdates() {
+            isLivePaused = !isLivePaused;
+            const badge = document.getElementById('live-badge');
+            const pauseBtn = document.getElementById('pause-btn');
+            const resumeBtn = document.getElementById('resume-btn');
+
+            if (isLivePaused) {
+                stopLiveUpdates();
+                badge.textContent = 'PAUSED';
+                badge.classList.add('paused');
+                pauseBtn.style.display = 'none';
+                resumeBtn.style.display = 'inline-flex';
+            } else {
+                startLiveUpdates();
+                loadValues(); // Refresh immediately
+                badge.textContent = 'LIVE';
+                badge.classList.remove('paused');
+                pauseBtn.style.display = 'inline-flex';
+                resumeBtn.style.display = 'none';
+            }
+        }
+
+        // Zoom & PTZ Functions
+        function setupZoomWheel() {
+            const frame = document.getElementById('preview-frame');
+            frame.addEventListener('wheel', (e) => {
+                if (!previewImage) return;
+                e.preventDefault();
+                if (e.deltaY < 0) {
+                    zoomIn();
+                } else {
+                    zoomOut();
+                }
+            }, { passive: false });
+        }
+
+        function zoomIn() {
+            if (zoomLevel < 4) {
+                zoomLevel = Math.min(4, zoomLevel + 0.25);
+                applyZoom();
+            }
+        }
+
+        function zoomOut() {
+            if (zoomLevel > 0.25) {
+                zoomLevel = Math.max(0.25, zoomLevel - 0.25);
+                applyZoom();
+            }
+        }
+
+        function resetZoom() {
+            zoomLevel = 1;
+            applyZoom();
+        }
+
+        async function ptzMove(direction) {
+            const select = document.getElementById('preview-camera-select');
+            const cameraName = select.value;
+            if (!cameraName) {
+                toast('Please select a camera first', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch('api/ptz', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ camera: cameraName, direction: direction })
+                });
+                const result = await res.json();
+                if (result.error) {
+                    toast(result.error, 'error');
+                } else {
+                    toast(`PTZ: ${direction}`, 'success');
+                    // Refresh preview after PTZ move
+                    setTimeout(() => refreshPreview(), 500);
+                }
+            } catch (e) {
+                toast('PTZ command failed: ' + e.message, 'error');
+            }
+        }
+
+        function applyZoom() {
+            const wrapper = document.getElementById('preview-wrapper');
+            const img = document.getElementById('preview-image');
+            const canvas = document.getElementById('preview-canvas');
+
+            if (!previewImage) return;
+
+            // Apply zoom
+            const scaledWidth = previewImage.width * zoomLevel;
+            const scaledHeight = previewImage.height * zoomLevel;
+
+            img.style.width = scaledWidth + 'px';
+            img.style.height = scaledHeight + 'px';
+
+            wrapper.style.width = scaledWidth + 'px';
+            wrapper.style.height = scaledHeight + 'px';
+
+            // Update canvas
+            canvas.width = scaledWidth;
+            canvas.height = scaledHeight;
+            canvas.style.width = scaledWidth + 'px';
+            canvas.style.height = scaledHeight + 'px';
+
+            // Update scale factor for ROI calculations
+            imageScale = zoomLevel;
+
+            // Update zoom level display
+            document.getElementById('zoom-level').textContent = Math.round(zoomLevel * 100) + '%';
+
+            drawROI();
+        }
+
+        // Navigation
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                showPage(btn.dataset.page);
+            });
+        });
+
+        function showPage(page) {
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelector(`[data-page="${page}"]`).classList.add('active');
+            document.getElementById(`page-${page}`).classList.add('active');
+
+            if (page === 'live') populateCameraSelect();
+            if (page === 'templates') loadTemplates();
+            if (page === 'ai-settings') loadAIConfig();
+        }
+
+        // Data Loading
+        async function loadData() {
+            await Promise.all([loadCameras(), loadValues(), loadTemplates()]);
+        }
+
+        async function loadCameras() {
+            try {
+                const res = await fetch('api/cameras');
+                cameras = await res.json();
+                renderCameras();
+                updateStatus();
+            } catch (e) {
+                console.error('Failed to load cameras:', e);
+            }
+        }
+
+        async function loadValues() {
+            try {
+                const res = await fetch('api/values');
+                values = await res.json();
+                renderValues();
+                loadHistory();
+            } catch (e) {
+                console.error('Failed to load values:', e);
+            }
+        }
+
+        let historyData = {};
+        let selectedHistoryCamera = null;
+        let historyViewMode = 'table';  // 'table', 'card', 'chart'
+
+        async function loadHistory() {
+            try {
+                const res = await fetch('api/history');
+                historyData = await res.json();
+                renderHistory();
+            } catch (e) {
+                console.error('Failed to load history:', e);
+            }
+        }
+
+        function renderHistory() {
+            const container = document.getElementById('history-container');
+            const cameraNames = Object.keys(historyData);
+
+            if (cameraNames.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-3);">No history available yet</p>';
+                return;
+            }
+
+            // Auto-select first camera if none selected
+            if (!selectedHistoryCamera || !historyData[selectedHistoryCamera]) {
+                selectedHistoryCamera = cameraNames[0];
+            }
+
+            // Render tabs for each camera
+            const tabs = cameraNames.map(name => `
+                <button class="history-tab ${name === selectedHistoryCamera ? 'active' : ''}"
+                        onclick="selectHistoryCamera('${name}')">${name}</button>
+            `).join('');
+
+            // View mode toggle
+            const viewModeHtml = `
+                <div style="display: flex; gap: 4px; margin-left: auto;">
+                    <button class="btn btn-sm ${historyViewMode === 'table' ? 'btn-primary' : 'btn-secondary'}" onclick="setHistoryViewMode('table')" title="Table View">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="3" y1="9" x2="21" y2="9"></line>
+                            <line x1="3" y1="15" x2="21" y2="15"></line>
+                            <line x1="9" y1="3" x2="9" y2="21"></line>
+                        </svg>
+                    </button>
+                    <button class="btn btn-sm ${historyViewMode === 'card' ? 'btn-primary' : 'btn-secondary'}" onclick="setHistoryViewMode('card')" title="Card View">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <rect x="3" y="3" width="7" height="7"></rect>
+                            <rect x="14" y="3" width="7" height="7"></rect>
+                            <rect x="14" y="14" width="7" height="7"></rect>
+                            <rect x="3" y="14" width="7" height="7"></rect>
+                        </svg>
+                    </button>
+                    <button class="btn btn-sm ${historyViewMode === 'chart' ? 'btn-primary' : 'btn-secondary'}" onclick="setHistoryViewMode('chart')" title="Chart View">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <line x1="18" y1="20" x2="18" y2="10"></line>
+                            <line x1="12" y1="20" x2="12" y2="4"></line>
+                            <line x1="6" y1="20" x2="6" y2="14"></line>
+                        </svg>
+                    </button>
+                </div>
+            `;
+
+            const history = historyData[selectedHistoryCamera] || [];
+            const camera = cameras[selectedHistoryCamera];
+            const unit = camera?.unit || '';
+
+            let contentHtml = '';
+            if (history.length > 0) {
+                if (historyViewMode === 'table') {
+                    contentHtml = renderHistoryTable(history, unit);
+                } else if (historyViewMode === 'card') {
+                    contentHtml = renderHistoryCards(history, unit);
+                } else if (historyViewMode === 'chart') {
+                    contentHtml = renderHistoryChart(history, unit);
+                }
+            } else {
+                contentHtml = '<p style="color: var(--text-3);">No readings yet for this camera</p>';
+            }
+
+            container.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
+                    <div class="history-tabs" style="margin-bottom: 0;">${tabs}</div>
+                    ${viewModeHtml}
+                </div>
+                ${contentHtml}
+            `;
+
+            // If chart mode, render the chart
+            if (historyViewMode === 'chart' && history.length > 0) {
+                renderHistoryChartCanvas(history, unit);
+            }
+        }
+
+        function renderHistoryTable(history, unit) {
+            const rows = history.slice().reverse().map((entry, index) => {
+                const time = new Date(entry.timestamp * 1000).toLocaleString();
+                const confidence = entry.confidence || 0;
+                const isLowConfidence = confidence < 80;
+                const valueClass = isLowConfidence ? 'low-confidence' : '';
+                const valueDisplay = entry.error
+                    ? `<span class="error-cell">${entry.error}</span>`
+                    : `<span class="${valueClass}">${entry.value !== null ? entry.value : '--'} ${unit}</span>`;
+
+                // Confidence bar
+                const barClass = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
+                const confidenceDisplay = entry.confidence
+                    ? `<span class="confidence-text">${confidence.toFixed(0)}%</span><div class="confidence-bar"><div class="confidence-bar-fill ${barClass}" style="width: ${confidence}%"></div></div>`
+                    : '--';
+
+                // Thumbnail
+                const thumbnailHtml = entry.roi_image_id
+                    ? `<img class="history-thumbnail" src="api/history-image/${encodeURIComponent(selectedHistoryCamera)}/${entry.roi_image_id}" onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')" onerror="this.outerHTML='<div class=\\'history-thumbnail-placeholder\\'>N/A</div>'">`
+                    : '<div class="history-thumbnail-placeholder">N/A</div>';
+
+                return `
+                    <tr onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')" style="cursor: pointer;">
+                        <td class="order-cell">${index + 1}</td>
+                        <td style="width: 60px;">${thumbnailHtml}</td>
+                        <td>${time}</td>
+                        <td class="value-cell">${valueDisplay}</td>
+                        <td>${confidenceDisplay}</td>
+                        <td>${entry.ocr_provider || 'tesseract'}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            return `
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th class="order-header">#</th>
+                            <th>ROI</th>
+                            <th>Time</th>
+                            <th class="value-header">Value</th>
+                            <th>Confidence</th>
+                            <th>Provider</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            `;
+        }
+
+        function renderHistoryCards(history, unit) {
+            const cards = history.slice().reverse().map((entry, index) => {
+                const time = new Date(entry.timestamp * 1000).toLocaleString();
+                const confidence = entry.confidence || 0;
+                const isLowConfidence = confidence < 80;
+                const valueClass = isLowConfidence ? 'low-confidence' : '';
+                const barClass = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
+
+                const thumbnailHtml = entry.roi_image_id
+                    ? `<img style="width: 100%; height: 80px; object-fit: cover; border-radius: 6px;" src="api/history-image/${encodeURIComponent(selectedHistoryCamera)}/${entry.roi_image_id}" onerror="this.style.display='none'">`
+                    : '';
+
+                return `
+                    <div style="background: var(--bg-3); border-radius: 8px; padding: 12px; cursor: pointer;" onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')">
+                        ${thumbnailHtml}
+                        <div style="font-size: 24px; font-weight: 700; color: ${isLowConfidence ? 'var(--error)' : 'var(--primary)'}; margin: 8px 0;">
+                            ${entry.value !== null ? entry.value : '--'} ${unit}
+                        </div>
+                        <div style="font-size: 12px; color: var(--text-3);">${time}</div>
+                        <div style="margin-top: 8px;">
+                            <div class="confidence-bar" style="width: 100%;"><div class="confidence-bar-fill ${barClass}" style="width: ${confidence}%"></div></div>
+                            <div style="font-size: 11px; color: var(--text-3); margin-top: 4px;">${confidence.toFixed(0)}% • ${entry.ocr_provider || 'tesseract'}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `<div class="grid grid-3" style="gap: 12px;">${cards}</div>`;
+        }
+
+        function renderHistoryChart(history, unit) {
+            return `
+                <div style="background: var(--bg-3); border-radius: 8px; padding: 16px;">
+                    <canvas id="history-chart" height="250"></canvas>
+                </div>
+            `;
+        }
+
+        function renderHistoryChartCanvas(history, unit) {
+            const canvas = document.getElementById('history-chart');
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width - 32;
+            canvas.height = 250;
+
+            const values = history.map(e => e.value).filter(v => v !== null);
+            if (values.length === 0) return;
+
+            const minVal = Math.min(...values);
+            const maxVal = Math.max(...values);
+            const range = maxVal - minVal || 1;
+            const padding = { top: 30, right: 20, bottom: 40, left: 50 };
+            const chartWidth = canvas.width - padding.left - padding.right;
+            const chartHeight = canvas.height - padding.top - padding.bottom;
+
+            // Clear canvas
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-3').trim() || '#1a1a2e';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw grid lines
+            ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 5; i++) {
+                const y = padding.top + (chartHeight / 5) * i;
+                ctx.beginPath();
+                ctx.moveTo(padding.left, y);
+                ctx.lineTo(canvas.width - padding.right, y);
+                ctx.stroke();
+            }
+
+            // Draw Y axis labels
+            ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            ctx.font = '11px system-ui';
+            ctx.textAlign = 'right';
+            for (let i = 0; i <= 5; i++) {
+                const val = maxVal - (range / 5) * i;
+                const y = padding.top + (chartHeight / 5) * i;
+                ctx.fillText(val.toFixed(1), padding.left - 8, y + 4);
+            }
+
+            // Draw line chart
+            ctx.strokeStyle = '#3b82f6';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+
+            history.forEach((entry, i) => {
+                if (entry.value === null) return;
+                const x = padding.left + (i / (history.length - 1 || 1)) * chartWidth;
+                const y = padding.top + chartHeight - ((entry.value - minVal) / range) * chartHeight;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+
+            // Draw points
+            ctx.fillStyle = '#3b82f6';
+            history.forEach((entry, i) => {
+                if (entry.value === null) return;
+                const x = padding.left + (i / (history.length - 1 || 1)) * chartWidth;
+                const y = padding.top + chartHeight - ((entry.value - minVal) / range) * chartHeight;
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // X axis label
+            ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            ctx.textAlign = 'center';
+            ctx.fillText('Time →', canvas.width / 2, canvas.height - 8);
+
+            // Y axis label
+            ctx.save();
+            ctx.translate(12, canvas.height / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText(`Value (${unit})`, 0, 0);
+            ctx.restore();
+        }
+
+        function setHistoryViewMode(mode) {
+            historyViewMode = mode;
+            renderHistory();
+        }
+
+        function showHistoryDetail(entry, unit) {
+            const time = new Date(entry.timestamp * 1000).toLocaleString();
+            const confidence = entry.confidence || 0;
+            const barClass = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
+
+            const imageHtml = entry.roi_image_id
+                ? `<img class="history-detail-image" src="api/history-image/${encodeURIComponent(selectedHistoryCamera)}/${entry.roi_image_id}" onerror="this.style.display='none'">`
+                : '';
+
+            const dialog = document.createElement('div');
+            dialog.className = 'history-detail-dialog';
+            dialog.onclick = (e) => { if (e.target === dialog) dialog.remove(); };
+            dialog.innerHTML = `
+                <div class="history-detail-content">
+                    <div class="history-detail-header">
+                        <h3>Extraction Details</h3>
+                        <button class="modal-close" onclick="this.closest('.history-detail-dialog').remove()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="history-detail-body">
+                        ${imageHtml}
+                        <div class="history-detail-grid">
+                            <div class="history-detail-item">
+                                <label>Value</label>
+                                <div class="value" style="color: ${confidence < 80 ? 'var(--error)' : 'var(--primary)'};">
+                                    ${entry.value !== null ? entry.value : '--'} ${unit}
+                                </div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>Date & Time</label>
+                                <div class="value">${time}</div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>OCR Provider</label>
+                                <div class="value">${entry.ocr_provider || 'tesseract'}</div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>Confidence</label>
+                                <div class="value">
+                                    ${confidence.toFixed(1)}%
+                                    <div class="confidence-bar" style="margin-top: 4px;"><div class="confidence-bar-fill ${barClass}" style="width: ${confidence}%"></div></div>
+                                </div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>Raw Text</label>
+                                <div class="value">${entry.raw_text || '--'}</div>
+                            </div>
+                            ${entry.video_description ? `
+                            <div class="history-detail-item full-width">
+                                <label>Video Description</label>
+                                <div class="value" style="font-weight: normal; font-size: 13px;">${entry.video_description}</div>
+                            </div>
+                            ` : ''}
+                            ${entry.error ? `
+                            <div class="history-detail-item full-width">
+                                <label>Error</label>
+                                <div class="value" style="color: var(--error);">${entry.error}</div>
+                            </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(dialog);
+        }
+
+        function selectHistoryCamera(name) {
+            selectedHistoryCamera = name;
+            renderHistory();
+        }
+
+        async function loadTemplates() {
+            try {
+                const res = await fetch('api/templates');
+                templates = await res.json();
+                renderTemplates();
+                populateTemplateSelect();
+            } catch (e) {
+                console.error('Failed to load templates:', e);
+            }
+        }
+
+        // Render Functions
+        function renderValues() {
+            const grid = document.getElementById('values-grid');
+            const cameraEntries = Object.entries(cameras);
+            const valueEntries = Object.entries(values);
+
+            // No cameras configured at all
+            if (cameraEntries.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                            <circle cx="12" cy="13" r="4"></circle>
+                        </svg>
+                        <h3>No cameras configured</h3>
+                        <p>Add cameras to start extracting values</p>
+                        <button class="btn btn-primary" onclick="showPage('cameras')">Add Camera</button>
+                    </div>
+                `;
+                return;
+            }
+
+            // Cameras configured but no values extracted yet
+            if (valueEntries.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                        <h3>Waiting for first extraction</h3>
+                        <p>${cameraEntries.length} camera${cameraEntries.length > 1 ? 's' : ''} configured. Values will appear after first scan.</p>
+                        <div class="loading" style="margin-top: 16px;"></div>
+                    </div>
+                `;
+                return;
+            }
+
+            // Show all cameras, using values if available
+            grid.innerHTML = cameraEntries.map(([name, camera]) => {
+                const data = values[name] || {};
+                const hasValue = data.value !== undefined && data.value !== null;
+                const hasError = data.error;
+                const statusClass = hasError ? 'error' : (hasValue ? 'ok' : 'pending');
+                const statusText = hasError ? 'Error' : (hasValue ? 'OK' : 'Waiting');
+                const displayValue = hasValue ? data.value : '--';
+                const time = data.timestamp ? new Date(data.timestamp * 1000).toLocaleTimeString() : '';
+                const confidence = data.confidence || 0;
+                const isLowConfidence = hasValue && confidence < 80 && !hasError;
+                const valueClass = isLowConfidence ? 'low-confidence' : '';
+
+                const description = data.video_description || '';
+                return `
+                    <div class="value-card">
+                        <div class="value-card-header">
+                            <div class="value-card-name">${name}</div>
+                            <div class="value-card-status ${statusClass}">${statusText}</div>
+                        </div>
+                        <div class="value-card-value ${valueClass}">
+                            ${displayValue}<span class="value-card-unit">${camera.unit || ''}</span>
+                        </div>
+                        <div class="value-card-meta">
+                            ${hasError ? `<span style="color: var(--error);">${data.error}</span>` :
+                              (hasValue ? `Confidence: ${confidence.toFixed(0)}% • ${time}` : 'Waiting for first scan...')}
+                            ${isLowConfidence ? '<span class="low-confidence-text"> (Low)</span>' : ''}
+                        </div>
+                        ${description ? `<div class="value-card-description">${description}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function maskPasswordInUrl(url) {
+            // Mask password in URL like rtsp://user:password@host -> rtsp://user:****@host
+            try {
+                const urlPattern = /^((?:rtsp|http|https):\/\/)([^:]+):([^@]+)@(.+)$/i;
+                const match = url.match(urlPattern);
+                if (match) {
+                    return `${match[1]}${match[2]}:****@${match[4]}`;
+                }
+                // Also handle URLs with password in query params
+                return url.replace(/([?&]password=)[^&]+/gi, '$1****');
+            } catch (e) {
+                return url;
+            }
+        }
+
+        function renderCameras() {
+            const list = document.getElementById('cameras-list');
+            const entries = Object.entries(cameras);
+
+            if (entries.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1 / -1;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                            <circle cx="12" cy="13" r="4"></circle>
+                        </svg>
+                        <h3>No cameras configured</h3>
+                        <p>Click "Add Camera" to get started</p>
+                    </div>
+                `;
+                return;
+            }
+
+            list.innerHTML = entries.map(([name, cam]) => `
+                <div class="camera-item">
+                    <div class="camera-item-preview" id="preview-${name.replace(/\\s/g, '-')}">
+                        <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-3);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24">
+                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                <circle cx="12" cy="13" r="4"></circle>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="camera-item-info">
+                        <div class="camera-item-name">${name}</div>
+                        <div class="camera-item-url">${maskPasswordInUrl(cam.stream_url)}</div>
+                        <div style="font-size: 12px; color: var(--text-3); margin-top: 4px;">
+                            ${cam.value_name}${cam.unit ? ' (' + cam.unit + ')' : ''} •
+                            ROI: ${cam.roi_width > 0 ? `${cam.roi_width}x${cam.roi_height}` : 'Not set'}
+                            ${cam.use_template_matching ? ' • Template: ' + cam.template_name : ''}
+                        </div>
+                    </div>
+                    <div class="camera-item-actions">
+                        <button class="btn btn-secondary btn-sm" onclick="editCamera('${name}')">Edit</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteCamera('${name}')">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderTemplates() {
+            const list = document.getElementById('templates-list');
+
+            if (templates.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1 / -1;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="3" y1="9" x2="21" y2="9"></line>
+                            <line x1="9" y1="21" x2="9" y2="9"></line>
+                        </svg>
+                        <h3>No templates saved</h3>
+                        <p>Create templates from the Live Preview page</p>
+                    </div>
+                `;
+                return;
+            }
+
+            list.innerHTML = templates.map(t => `
+                <div class="template-item">
+                    <div class="template-preview">
+                        <img src="api/templates/${t.name}/image" alt="${t.name}">
+                    </div>
+                    <div class="template-info">
+                        <div class="template-name">${t.name}</div>
+                        <div class="template-meta">
+                            ROI: ${t.original_roi?.width || 0}x${t.original_roi?.height || 0}
+                        </div>
+                    </div>
+                    <button class="btn btn-danger btn-sm btn-icon" onclick="deleteTemplate('${t.name}')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // Camera Modal
+        function openAddCameraModal() {
+            document.getElementById('camera-modal-title').textContent = 'Add Camera';
+            document.getElementById('camera-edit-name').value = '';
+            document.getElementById('camera-name').value = '';
+            document.getElementById('camera-url').value = '';
+            document.getElementById('camera-username').value = '';
+            document.getElementById('camera-password').value = '';
+            document.getElementById('camera-value-name').value = 'Value';
+            document.getElementById('camera-unit').value = '°C';
+            document.getElementById('camera-min-value').value = '';
+            document.getElementById('camera-max-value').value = '';
+            document.getElementById('camera-preprocessing').value = 'auto';
+            document.getElementById('camera-template').value = '';
+            document.getElementById('camera-use-template').checked = false;
+            // Reset URL builder fields
+            document.getElementById('camera-protocol').value = 'rtsp';
+            document.getElementById('camera-host').value = '';
+            document.getElementById('camera-port').value = '';
+            document.getElementById('camera-path').value = '';
+            document.getElementById('url-preview-text').textContent = '';
+            setUrlMode('full');
+            document.getElementById('camera-modal').classList.add('active');
+        }
+
+        function editCamera(name) {
+            const cam = cameras[name];
+            if (!cam) return;
+
+            document.getElementById('camera-modal-title').textContent = 'Edit Camera';
+            document.getElementById('camera-edit-name').value = name;
+            document.getElementById('camera-name').value = cam.name;
+            document.getElementById('camera-url').value = cam.stream_url;
+            document.getElementById('camera-username').value = cam.username || '';
+            document.getElementById('camera-password').value = cam.password || '';
+            document.getElementById('camera-value-name').value = cam.value_name || 'Value';
+            document.getElementById('camera-unit').value = cam.unit || '';
+            document.getElementById('camera-min-value').value = cam.min_value !== null && cam.min_value !== undefined ? cam.min_value : '';
+            document.getElementById('camera-max-value').value = cam.max_value !== null && cam.max_value !== undefined ? cam.max_value : '';
+            document.getElementById('camera-preprocessing').value = cam.preprocessing || 'auto';
+            document.getElementById('camera-template').value = cam.template_name || '';
+            document.getElementById('camera-use-template').checked = cam.use_template_matching || false;
+            // Parse existing URL to builder fields
+            setUrlMode('full');
+            parseUrlToFields();
+            document.getElementById('camera-modal').classList.add('active');
+        }
+
+        function closeCameraModal() {
+            document.getElementById('camera-modal').classList.remove('active');
+        }
+
+        // URL Mode Toggle
+        let urlMode = 'full';
+        function setUrlMode(mode) {
+            urlMode = mode;
+            document.getElementById('url-mode-full').classList.toggle('active', mode === 'full');
+            document.getElementById('url-mode-build').classList.toggle('active', mode === 'build');
+            document.getElementById('url-input-full').style.display = mode === 'full' ? 'block' : 'none';
+            document.getElementById('url-input-build').style.display = mode === 'build' ? 'block' : 'none';
+            document.getElementById('url-preview').style.display = mode === 'build' ? 'block' : 'none';
+
+            if (mode === 'build') {
+                parseUrlToFields();
+                buildUrlFromFields();
+            }
+        }
+
+        // Parse full URL to individual fields
+        function parseUrlToFields() {
+            const urlInput = document.getElementById('camera-url').value.trim();
+            if (!urlInput) return;
+
+            try {
+                // Handle URLs with credentials in format: protocol://user:pass@host:port/path
+                let protocol = 'rtsp';
+                let host = '';
+                let port = '';
+                let path = '';
+                let username = '';
+                let password = '';
+
+                // Extract protocol
+                const protocolMatch = urlInput.match(/^(rtsp|https?):\/\//i);
+                if (protocolMatch) {
+                    protocol = protocolMatch[1].toLowerCase();
+                }
+
+                // Remove protocol for parsing
+                let remainder = urlInput.replace(/^(rtsp|https?):\/\//i, '');
+
+                // Extract credentials if present (user:pass@)
+                const credMatch = remainder.match(/^([^:@]+):([^@]+)@/);
+                if (credMatch) {
+                    username = decodeURIComponent(credMatch[1]);
+                    password = decodeURIComponent(credMatch[2]);
+                    remainder = remainder.substring(credMatch[0].length);
+                } else {
+                    // Check for username only (user@)
+                    const userMatch = remainder.match(/^([^:@]+)@/);
+                    if (userMatch) {
+                        username = decodeURIComponent(userMatch[1]);
+                        remainder = remainder.substring(userMatch[0].length);
+                    }
+                }
+
+                // Extract host:port/path
+                const hostMatch = remainder.match(/^([^:\/]+)(?::(\d+))?(\/.*)?$/);
+                if (hostMatch) {
+                    host = hostMatch[1];
+                    port = hostMatch[2] || '';
+                    path = hostMatch[3] || '';
+                }
+
+                // Update fields
+                document.getElementById('camera-protocol').value = protocol;
+                document.getElementById('camera-host').value = host;
+                document.getElementById('camera-port').value = port;
+                document.getElementById('camera-path').value = path;
+
+                // Only update username/password if extracted and fields are empty
+                if (username && !document.getElementById('camera-username').value) {
+                    document.getElementById('camera-username').value = username;
+                }
+                if (password && !document.getElementById('camera-password').value) {
+                    document.getElementById('camera-password').value = password;
+                }
+            } catch (e) {
+                console.error('Failed to parse URL:', e);
+            }
+        }
+
+        // Build URL from individual fields
+        function buildUrlFromFields() {
+            const protocol = document.getElementById('camera-protocol').value;
+            const host = document.getElementById('camera-host').value.trim();
+            const port = document.getElementById('camera-port').value.trim();
+            let path = document.getElementById('camera-path').value.trim();
+            const username = document.getElementById('camera-username').value.trim();
+            const password = document.getElementById('camera-password').value;
+
+            if (!host) {
+                document.getElementById('url-preview-text').textContent = 'Enter host/IP to generate URL';
+                return;
+            }
+
+            // Ensure path starts with /
+            if (path && !path.startsWith('/')) {
+                path = '/' + path;
+            }
+
+            // Build URL
+            let url = protocol + '://';
+
+            // Add credentials if provided
+            if (username) {
+                url += encodeURIComponent(username);
+                if (password) {
+                    url += ':' + encodeURIComponent(password);
+                }
+                url += '@';
+            }
+
+            url += host;
+
+            // Add port if specified
+            if (port) {
+                url += ':' + port;
+            }
+
+            url += path;
+
+            // Update the main URL field and preview
+            document.getElementById('camera-url').value = url;
+            document.getElementById('url-preview-text').textContent = url;
+        }
+
+        async function saveCamera() {
+            const editName = document.getElementById('camera-edit-name').value;
+            const name = document.getElementById('camera-name').value.trim();
+            const url = document.getElementById('camera-url').value.trim();
+
+            if (!name || !url) {
+                toast('Please fill in required fields', 'error');
+                return;
+            }
+
+            const minValInput = document.getElementById('camera-min-value').value;
+            const maxValInput = document.getElementById('camera-max-value').value;
+
+            const data = {
+                name: name,
+                stream_url: url,
+                username: document.getElementById('camera-username').value,
+                password: document.getElementById('camera-password').value,
+                value_name: document.getElementById('camera-value-name').value || 'Value',
+                unit: document.getElementById('camera-unit').value,
+                min_value: minValInput !== '' ? parseFloat(minValInput) : null,
+                max_value: maxValInput !== '' ? parseFloat(maxValInput) : null,
+                preprocessing: document.getElementById('camera-preprocessing').value,
+                template_name: document.getElementById('camera-template').value,
+                use_template_matching: document.getElementById('camera-use-template').checked,
+                roi_x: cameras[editName]?.roi_x || 0,
+                roi_y: cameras[editName]?.roi_y || 0,
+                roi_width: cameras[editName]?.roi_width || 0,
+                roi_height: cameras[editName]?.roi_height || 0,
+            };
+
+            try {
+                let res;
+                if (editName) {
+                    res = await fetch(`api/cameras/${encodeURIComponent(editName)}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    });
+                } else {
+                    res = await fetch('api/cameras', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    });
+                }
+
+                if (res.ok) {
+                    toast('Camera saved successfully', 'success');
+                    closeCameraModal();
+                    loadCameras();
+                } else {
+                    const err = await res.json();
+                    toast(err.error || 'Failed to save camera', 'error');
+                }
+            } catch (e) {
+                toast('Failed to save camera', 'error');
+            }
+        }
+
+        async function deleteCamera(name) {
+            if (!confirm(`Delete camera "${name}"?`)) return;
+
+            try {
+                const res = await fetch(`api/cameras/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                if (res.ok) {
+                    toast('Camera deleted', 'success');
+                    loadCameras();
+                    loadValues();
+                }
+            } catch (e) {
+                toast('Failed to delete camera', 'error');
+            }
+        }
+
+        // Live Preview
+        function populateCameraSelect() {
+            const select = document.getElementById('live-camera-select');
+            const cameraNames = Object.keys(cameras);
+            select.innerHTML = '<option value="">-- Select a camera --</option>' +
+                cameraNames.map(name => `<option value="${name}">${name}</option>`).join('');
+
+            // Auto-select first camera if available and none selected
+            if (cameraNames.length > 0 && !select.value) {
+                select.value = cameraNames[0];
+                loadLivePreview();
+            }
+        }
+
+        function editSelectedCamera() {
+            const select = document.getElementById('live-camera-select');
+            const cameraName = select.value;
+            if (!cameraName) {
+                toast('Please select a camera first', 'error');
+                return;
+            }
+            // Open edit dialog for the selected camera
+            editCamera(cameraName);
+        }
+
+        function populateTemplateSelect() {
+            const select = document.getElementById('camera-template');
+            select.innerHTML = '<option value="">None</option>' +
+                templates.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+        }
+
+        async function loadLivePreview() {
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) return;
+
+            const cam = cameras[name];
+            if (cam) {
+                currentROI = {
+                    x: cam.roi_x || 0,
+                    y: cam.roi_y || 0,
+                    width: cam.roi_width || 0,
+                    height: cam.roi_height || 0
+                };
+                updateROIDisplay();
+            }
+
+            await refreshLivePreview();
+            loadSavedROIs();
+        }
+
+        async function refreshLivePreview() {
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) {
+                toast('Please select a camera', 'error');
+                return;
+            }
+
+            const placeholder = document.getElementById('preview-placeholder');
+            placeholder.innerHTML = '<div class="loading"></div><p style="margin-top: 16px;">Loading preview...</p>';
+
+            try {
+                const res = await fetch(`api/capture/${encodeURIComponent(name)}`);
+                const data = await res.json();
+
+                if (data.error) {
+                    placeholder.innerHTML = `<p style="color: var(--error);">${data.error}</p>`;
+                    return;
+                }
+
+                const img = document.getElementById('preview-image');
+                img.src = 'data:image/png;base64,' + data.frame;
+                img.style.display = 'block';
+                placeholder.style.display = 'none';
+
+                img.onload = () => {
+                    previewImage = { width: data.width, height: data.height };
+                    // Reset zoom for new image
+                    zoomLevel = 1;
+                    setupCanvasSize();
+                    drawROI();
+                };
+
+            } catch (e) {
+                placeholder.innerHTML = `<p style="color: var(--error);">Failed to load preview</p>`;
+            }
+        }
+
+        // Canvas & ROI
+        let dragMode = 'none'; // 'none', 'draw', 'move', 'resize-tl', 'resize-tr', 'resize-bl', 'resize-br'
+        let dragStartROI = null;
+        const HANDLE_SIZE = 12; // Size of corner handles in image coordinates
+
+        function getMousePos(canvas, e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+            return {
+                x: x / zoomLevel,
+                y: y / zoomLevel
+            };
+        }
+
+        function getHitTarget(pos) {
+            if (currentROI.width === 0 || currentROI.height === 0) return 'draw';
+
+            const roi = currentROI;
+            const hs = HANDLE_SIZE / zoomLevel; // Adjust handle size for zoom
+
+            // Check corner handles first
+            if (Math.abs(pos.x - roi.x) < hs && Math.abs(pos.y - roi.y) < hs) return 'resize-tl';
+            if (Math.abs(pos.x - (roi.x + roi.width)) < hs && Math.abs(pos.y - roi.y) < hs) return 'resize-tr';
+            if (Math.abs(pos.x - roi.x) < hs && Math.abs(pos.y - (roi.y + roi.height)) < hs) return 'resize-bl';
+            if (Math.abs(pos.x - (roi.x + roi.width)) < hs && Math.abs(pos.y - (roi.y + roi.height)) < hs) return 'resize-br';
+
+            // Check if inside ROI (for moving)
+            if (pos.x >= roi.x && pos.x <= roi.x + roi.width &&
+                pos.y >= roi.y && pos.y <= roi.y + roi.height) {
+                return 'move';
+            }
+
+            return 'draw';
+        }
+
+        function updateCursor(canvas, pos) {
+            if (!previewImage || currentROI.width === 0) {
+                canvas.style.cursor = 'crosshair';
+                return;
+            }
+
+            const target = getHitTarget(pos);
+            switch (target) {
+                case 'resize-tl':
+                case 'resize-br':
+                    canvas.style.cursor = 'nwse-resize';
+                    break;
+                case 'resize-tr':
+                case 'resize-bl':
+                    canvas.style.cursor = 'nesw-resize';
+                    break;
+                case 'move':
+                    canvas.style.cursor = 'move';
+                    break;
+                default:
+                    canvas.style.cursor = 'crosshair';
+            }
+        }
+
+        function setupCanvas() {
+            const canvas = document.getElementById('preview-canvas');
+
+            canvas.addEventListener('mousedown', (e) => {
+                if (!previewImage) return;
+                e.preventDefault();
+                const pos = getMousePos(canvas, e);
+
+                dragMode = getHitTarget(pos);
+                isDrawing = true;
+                startX = pos.x;
+                startY = pos.y;
+                dragStartROI = { ...currentROI };
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                if (!previewImage) return;
+                e.preventDefault();
+                const pos = getMousePos(canvas, e);
+
+                // Update cursor based on position
+                if (!isDrawing) {
+                    updateCursor(canvas, pos);
+                    return;
+                }
+
+                const dx = pos.x - startX;
+                const dy = pos.y - startY;
+
+                switch (dragMode) {
+                    case 'move':
+                        currentROI = {
+                            x: Math.max(0, Math.round(dragStartROI.x + dx)),
+                            y: Math.max(0, Math.round(dragStartROI.y + dy)),
+                            width: dragStartROI.width,
+                            height: dragStartROI.height
+                        };
+                        break;
+
+                    case 'resize-tl':
+                        currentROI = {
+                            x: Math.round(Math.min(dragStartROI.x + dragStartROI.width - 10, dragStartROI.x + dx)),
+                            y: Math.round(Math.min(dragStartROI.y + dragStartROI.height - 10, dragStartROI.y + dy)),
+                            width: Math.max(10, Math.round(dragStartROI.width - dx)),
+                            height: Math.max(10, Math.round(dragStartROI.height - dy))
+                        };
+                        break;
+
+                    case 'resize-tr':
+                        currentROI = {
+                            x: dragStartROI.x,
+                            y: Math.round(Math.min(dragStartROI.y + dragStartROI.height - 10, dragStartROI.y + dy)),
+                            width: Math.max(10, Math.round(dragStartROI.width + dx)),
+                            height: Math.max(10, Math.round(dragStartROI.height - dy))
+                        };
+                        break;
+
+                    case 'resize-bl':
+                        currentROI = {
+                            x: Math.round(Math.min(dragStartROI.x + dragStartROI.width - 10, dragStartROI.x + dx)),
+                            y: dragStartROI.y,
+                            width: Math.max(10, Math.round(dragStartROI.width - dx)),
+                            height: Math.max(10, Math.round(dragStartROI.height + dy))
+                        };
+                        break;
+
+                    case 'resize-br':
+                        currentROI = {
+                            x: dragStartROI.x,
+                            y: dragStartROI.y,
+                            width: Math.max(10, Math.round(dragStartROI.width + dx)),
+                            height: Math.max(10, Math.round(dragStartROI.height + dy))
+                        };
+                        break;
+
+                    case 'draw':
+                    default:
+                        currentROI = {
+                            x: Math.round(Math.min(startX, pos.x)),
+                            y: Math.round(Math.min(startY, pos.y)),
+                            width: Math.round(Math.abs(pos.x - startX)),
+                            height: Math.round(Math.abs(pos.y - startY))
+                        };
+                        break;
+                }
+
+                updateROIDisplay();
+                drawROI();
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isDrawing = false;
+                dragMode = 'none';
+            });
+
+            canvas.addEventListener('mouseleave', () => {
+                isDrawing = false;
+                dragMode = 'none';
+            });
+        }
+
+        function setupCanvasSize() {
+            const canvas = document.getElementById('preview-canvas');
+            const img = document.getElementById('preview-image');
+
+            // Set canvas to match zoomed image size
+            const width = previewImage.width * zoomLevel;
+            const height = previewImage.height * zoomLevel;
+
+            canvas.width = width;
+            canvas.height = height;
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+            canvas.style.display = 'block';
+
+            // Set image size
+            img.style.width = width + 'px';
+            img.style.height = height + 'px';
+
+            // Show zoom controls
+            document.getElementById('zoom-controls').style.display = 'flex';
+            document.getElementById('zoom-level').textContent = Math.round(zoomLevel * 100) + '%';
+
+            imageScale = zoomLevel;
+        }
+
+        function drawROI() {
+            const canvas = document.getElementById('preview-canvas');
+            const ctx = canvas.getContext('2d');
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (currentROI.width > 0 && currentROI.height > 0) {
+                const x = currentROI.x * imageScale;
+                const y = currentROI.y * imageScale;
+                const w = currentROI.width * imageScale;
+                const h = currentROI.height * imageScale;
+
+                // Draw semi-transparent overlay outside ROI
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.fillRect(0, 0, canvas.width, y);
+                ctx.fillRect(0, y + h, canvas.width, canvas.height - y - h);
+                ctx.fillRect(0, y, x, h);
+                ctx.fillRect(x + w, y, canvas.width - x - w, h);
+
+                // Draw ROI border
+                ctx.strokeStyle = '#03a9f4';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, w, h);
+
+                // Draw corner handles
+                const handleSize = 8;
+                ctx.fillStyle = '#03a9f4';
+                ctx.fillRect(x - handleSize/2, y - handleSize/2, handleSize, handleSize);
+                ctx.fillRect(x + w - handleSize/2, y - handleSize/2, handleSize, handleSize);
+                ctx.fillRect(x - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+                ctx.fillRect(x + w - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+
+                // Draw value if available
+                const val = values[document.getElementById('live-camera-select').value];
+                if (val && val.value !== null) {
+                    const label = val.value + (cameras[val.camera_name]?.unit || '');
+                    ctx.font = 'bold 16px sans-serif';
+                    const textWidth = ctx.measureText(label).width;
+
+                    ctx.fillStyle = '#03a9f4';
+                    ctx.fillRect(x, y - 25, textWidth + 12, 22);
+
+                    ctx.fillStyle = 'white';
+                    ctx.fillText(label, x + 6, y - 8);
+                }
+            }
+        }
+
+        function updateROIDisplay() {
+            document.getElementById('roi-x').textContent = currentROI.x;
+            document.getElementById('roi-y').textContent = currentROI.y;
+            document.getElementById('roi-w').textContent = currentROI.width;
+            document.getElementById('roi-h').textContent = currentROI.height;
+        }
+
+        function clearROI() {
+            currentROI = { x: 0, y: 0, width: 0, height: 0 };
+            updateROIDisplay();
+            drawROI();
+        }
+
+        async function testExtraction() {
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) {
+                toast('Please select a camera', 'error');
+                return;
+            }
+
+            const preprocessing = document.getElementById('live-preprocessing').value;
+
+            // Show loading state
+            const resultValue = document.getElementById('result-value');
+            const resultRaw = document.getElementById('result-raw');
+            const resultConfidence = document.getElementById('result-confidence');
+            const resultPreview = document.getElementById('result-roi-preview');
+
+            resultValue.textContent = '...';
+            resultValue.style.color = 'var(--text-3)';
+            resultRaw.innerHTML = '<div class="loading" style="width: 20px; height: 20px; margin: 0 auto;"></div>';
+            resultConfidence.textContent = 'Extracting...';
+            resultPreview.style.display = 'none';
+
+            try {
+                const res = await fetch('api/test-extraction', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        camera_name: name,
+                        roi: currentROI,
+                        preprocessing: preprocessing
+                    })
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+                    // Show ROI preview if available
+                    const previewEl = document.getElementById('result-roi-preview');
+                    if (data.roi_preview) {
+                        previewEl.innerHTML = `<img src="data:image/png;base64,${data.roi_preview}" style="width: 100%; display: block;">`;
+                        previewEl.style.display = 'block';
+                    } else {
+                        previewEl.style.display = 'none';
+                    }
+
+                    document.getElementById('result-value').textContent =
+                        data.value !== null ? data.value : '--';
+                    document.getElementById('result-raw').textContent =
+                        `Raw: "${data.raw_text || ''}"`;
+                    document.getElementById('result-confidence').textContent =
+                        `Confidence: ${(data.confidence || 0).toFixed(1)}%`;
+
+                    document.getElementById('result-value').style.color =
+                        data.confidence > 50 ? 'var(--success)' :
+                        data.confidence > 30 ? 'var(--warning)' : 'var(--error)';
+                } else {
+                    document.getElementById('result-roi-preview').style.display = 'none';
+                    document.getElementById('result-value').textContent = 'Error';
+                    document.getElementById('result-raw').textContent = data.error || 'Unknown error';
+                    document.getElementById('result-confidence').textContent = '';
+                }
+            } catch (e) {
+                toast('Extraction failed', 'error');
+            }
+        }
+
+        async function applyROIToCamera() {
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) {
+                toast('Please select a camera', 'error');
+                return;
+            }
+
+            const cam = cameras[name];
+            if (!cam) return;
+
+            const data = {
+                ...cam,
+                roi_x: currentROI.x,
+                roi_y: currentROI.y,
+                roi_width: currentROI.width,
+                roi_height: currentROI.height,
+                preprocessing: document.getElementById('live-preprocessing').value
+            };
+
+            try {
+                const res = await fetch(`api/cameras/${encodeURIComponent(name)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (res.ok) {
+                    toast('ROI saved to camera', 'success');
+                    loadCameras();
+                } else {
+                    toast('Failed to save ROI', 'error');
+                }
+            } catch (e) {
+                toast('Failed to save ROI', 'error');
+            }
+        }
+
+        // Saved ROIs
+        async function loadSavedROIs() {
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) return;
+
+            const section = document.getElementById('saved-rois-section');
+            const list = document.getElementById('saved-rois-list');
+
+            try {
+                const res = await fetch(`api/saved-rois/${encodeURIComponent(name)}`);
+                const rois = await res.json();
+
+                if (rois.length > 0) {
+                    section.style.display = 'block';
+                    const validatedCount = rois.filter(r => r.validated_value !== undefined).length;
+                    list.innerHTML = rois.map(roi => {
+                        const isValidated = roi.validated_value !== undefined;
+                        return `
+                        <div class="saved-roi-item ${isValidated ? 'validated' : ''}" data-roi-id="${roi.id}" onclick="showSavedRoiDetail('${roi.id}', ${JSON.stringify(roi).replace(/"/g, '&quot;')})">
+                            <img src="api/saved-rois/${encodeURIComponent(name)}/${roi.id}/image" alt="ROI">
+                            ${isValidated ? '<div class="validated-badge" title="Validated for OCR training">&#x2714;</div>' : ''}
+                            <div class="saved-roi-buttons">
+                                <button class="saved-roi-apply" onclick="event.stopPropagation(); applySavedROI(${JSON.stringify(roi.roi).replace(/"/g, '&quot;')})" title="Apply">&#x2714;</button>
+                                <button class="saved-roi-test" onclick="testSavedROI(${JSON.stringify(roi.roi).replace(/"/g, '&quot;')}, '${roi.id}', event)" title="Test">&#x25B6;</button>
+                            </div>
+                            <button class="saved-roi-delete" onclick="event.stopPropagation(); deleteSavedROI('${name}', '${roi.id}')">&times;</button>
+                            <div class="saved-roi-info">
+                                <div class="saved-roi-value" id="roi-value-${roi.id}">${isValidated ? roi.validated_value : (roi.extracted_value !== undefined && roi.extracted_value !== null ? roi.extracted_value : '--')}</div>
+                                <div class="saved-roi-time">${new Date(roi.timestamp * 1000).toLocaleString()}</div>
+                            </div>
+                        </div>
+                    `}).join('');
+                } else {
+                    section.style.display = 'block';
+                    list.innerHTML = '<p style="color: var(--text-3); font-size: 12px;">No saved ROIs. Draw an ROI and click "Save Current ROI".</p>';
+                }
+            } catch (e) {
+                console.error('Failed to load saved ROIs:', e);
+            }
+        }
+
+        async function saveCurrentROI() {
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) {
+                toast('Please select a camera first', 'error');
+                return;
+            }
+
+            if (currentROI.width <= 0 || currentROI.height <= 0) {
+                toast('Please draw an ROI first', 'error');
+                return;
+            }
+
+            // Get the current frame as base64 with ROI drawn
+            const canvas = document.getElementById('preview-canvas');
+            const img = document.getElementById('preview-image');
+
+            // Create a temporary canvas to draw ROI cropped region
+            const tempCanvas = document.createElement('canvas');
+            const ctx = tempCanvas.getContext('2d');
+
+            // Calculate actual ROI coordinates (accounting for zoom)
+            const roiX = Math.round(currentROI.x / zoomLevel);
+            const roiY = Math.round(currentROI.y / zoomLevel);
+            const roiW = Math.round(currentROI.width / zoomLevel);
+            const roiH = Math.round(currentROI.height / zoomLevel);
+
+            // Draw the ROI region
+            tempCanvas.width = roiW;
+            tempCanvas.height = roiH;
+            ctx.drawImage(img, roiX, roiY, roiW, roiH, 0, 0, roiW, roiH);
+
+            const screenshot = tempCanvas.toDataURL('image/png').split(',')[1];
+
+            // Also do a test extraction to get the value
+            let extractedValue = null;
+            try {
+                const testRes = await fetch('api/test-extraction', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        camera_name: name,
+                        roi: { x: roiX, y: roiY, width: roiW, height: roiH },
+                        preprocessing: document.getElementById('live-preprocessing').value
+                    })
+                });
+                const testData = await testRes.json();
+                if (testData.success) {
+                    extractedValue = testData.value;
+                }
+            } catch (e) {
+                console.error('Test extraction failed:', e);
+            }
+
+            try {
+                const res = await fetch(`api/saved-rois/${encodeURIComponent(name)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        roi: { x: roiX, y: roiY, width: roiW, height: roiH },
+                        screenshot: screenshot,
+                        extracted_value: extractedValue
+                    })
+                });
+
+                if (res.ok) {
+                    toast('ROI saved', 'success');
+                    loadSavedROIs();
+                } else {
+                    toast('Failed to save ROI', 'error');
+                }
+            } catch (e) {
+                toast('Failed to save ROI', 'error');
+            }
+        }
+
+        async function deleteSavedROI(cameraName, roiId) {
+            if (!confirm('Delete this saved ROI?')) return;
+
+            try {
+                const res = await fetch(`api/saved-rois/${encodeURIComponent(cameraName)}/${roiId}`, {
+                    method: 'DELETE'
+                });
+
+                if (res.ok) {
+                    toast('ROI deleted', 'success');
+                    loadSavedROIs();
+                } else {
+                    toast('Failed to delete ROI', 'error');
+                }
+            } catch (e) {
+                toast('Failed to delete ROI', 'error');
+            }
+        }
+
+        function applySavedROI(roi) {
+            // Apply the saved ROI coordinates
+            currentROI = {
+                x: roi.x * zoomLevel,
+                y: roi.y * zoomLevel,
+                width: roi.width * zoomLevel,
+                height: roi.height * zoomLevel
+            };
+            updateROIDisplay();
+            drawROI();
+            toast('ROI applied', 'success');
+        }
+
+        async function testAllROIs() {
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) {
+                toast('Please select a camera first', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('test-all-btn');
+            btn.disabled = true;
+            btn.textContent = 'Testing...';
+
+            try {
+                const res = await fetch(`api/saved-rois/${encodeURIComponent(name)}`);
+                const rois = await res.json();
+
+                if (rois.length === 0) {
+                    toast('No saved ROIs to test', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Test All';
+                    return;
+                }
+
+                let bestResult = null;
+                let bestConfidence = 0;
+
+                for (const roi of rois) {
+                    const valueEl = document.getElementById(`roi-value-${roi.id}`);
+                    if (valueEl) {
+                        valueEl.textContent = '...';
+                        valueEl.style.color = 'var(--text-3)';
+                    }
+
+                    try {
+                        const testRes = await fetch('api/test-extraction', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                camera_name: name,
+                                roi: roi.roi,
+                                preprocessing: document.getElementById('live-preprocessing').value
+                            })
+                        });
+
+                        const data = await testRes.json();
+
+                        if (valueEl) {
+                            if (data.success) {
+                                valueEl.textContent = data.value !== null ? data.value : '--';
+                                valueEl.style.color = data.confidence > 50 ? 'var(--success)' : 'var(--warning)';
+
+                                if (data.confidence > bestConfidence && data.value !== null) {
+                                    bestConfidence = data.confidence;
+                                    bestResult = { value: data.value, roi: roi.roi, id: roi.id };
+                                }
+                            } else {
+                                valueEl.textContent = 'Error';
+                                valueEl.style.color = 'var(--error)';
+                            }
+                        }
+                    } catch (e) {
+                        if (valueEl) {
+                            valueEl.textContent = 'Error';
+                            valueEl.style.color = 'var(--error)';
+                        }
+                    }
+                }
+
+                if (bestResult) {
+                    toast(`Best: ${bestResult.value} (${bestConfidence.toFixed(0)}% confidence)`, 'success');
+                    // Highlight best ROI
+                    document.querySelectorAll('.saved-roi-item').forEach(el => el.style.borderColor = 'var(--border)');
+                    const bestEl = document.querySelector(`[data-roi-id="${bestResult.id}"]`);
+                    if (bestEl) bestEl.style.borderColor = 'var(--success)';
+                } else {
+                    toast('No valid results from any ROI', 'warning');
+                }
+
+            } catch (e) {
+                toast('Test failed: ' + e.message, 'error');
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Test All';
+        }
+
+        // Store last test results for ROI detail dialog
+        let savedRoiTestResults = {};
+
+        async function testSavedROI(roi, roiId, event) {
+            if (event) event.stopPropagation();
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) {
+                toast('Please select a camera first', 'error');
+                return;
+            }
+
+            // Show busy indicator on the card
+            const cardEl = document.querySelector(`.saved-roi-item[data-roi-id="${roiId}"]`);
+            const valueEl = document.getElementById(`roi-value-${roiId}`);
+            if (cardEl) {
+                cardEl.style.opacity = '0.6';
+                cardEl.style.pointerEvents = 'none';
+            }
+            if (valueEl) {
+                valueEl.innerHTML = '<div class="loading" style="width: 16px; height: 16px; margin: 0 auto;"></div>';
+            }
+
+            try {
+                const res = await fetch('api/test-extraction', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        camera_name: name,
+                        roi: roi,
+                        preprocessing: document.getElementById('live-preprocessing').value
+                    })
+                });
+
+                const data = await res.json();
+
+                // Store result for detail dialog
+                savedRoiTestResults[roiId] = {
+                    ...data,
+                    roi: roi,
+                    timestamp: Date.now() / 1000,
+                    camera_name: name
+                };
+
+                if (data.success && valueEl) {
+                    valueEl.textContent = data.value !== null ? data.value : '--';
+                    valueEl.style.color = data.confidence > 50 ? 'var(--success)' : 'var(--warning)';
+                    toast(`Value: ${data.value} (${data.confidence.toFixed(0)}%)`, 'success');
+                } else if (valueEl) {
+                    valueEl.textContent = 'Error';
+                    valueEl.style.color = 'var(--error)';
+                }
+            } catch (e) {
+                if (valueEl) {
+                    valueEl.textContent = 'Error';
+                    valueEl.style.color = 'var(--error)';
+                }
+                toast('Test failed', 'error');
+            } finally {
+                // Restore card state
+                if (cardEl) {
+                    cardEl.style.opacity = '1';
+                    cardEl.style.pointerEvents = 'auto';
+                }
+            }
+        }
+
+        function showSavedRoiDetail(roiId, roiData) {
+            const name = document.getElementById('live-camera-select').value;
+            const testResult = savedRoiTestResults[roiId] || {};
+            const camera = cameras[name] || {};
+            const unit = camera.unit || '';
+
+            const time = roiData.timestamp ? new Date(roiData.timestamp * 1000).toLocaleString() : '--';
+            const value = testResult.value !== undefined ? testResult.value : (roiData.extracted_value !== undefined ? roiData.extracted_value : '--');
+            const confidence = testResult.confidence || roiData.confidence || 0;
+            const barClass = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
+            const rawText = testResult.raw_text || roiData.raw_text || '--';
+            const validatedValue = roiData.validated_value;
+            const validatedAt = roiData.validated_at ? new Date(roiData.validated_at * 1000).toLocaleString() : null;
+
+            const dialog = document.createElement('div');
+            dialog.className = 'history-detail-dialog';
+            dialog.onclick = (e) => { if (e.target === dialog) dialog.remove(); };
+            dialog.innerHTML = `
+                <div class="history-detail-content">
+                    <div class="history-detail-header">
+                        <h3>Saved ROI Details</h3>
+                        <button class="modal-close" onclick="this.closest('.history-detail-dialog').remove()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="history-detail-body">
+                        <img class="history-detail-image" src="api/saved-rois/${encodeURIComponent(name)}/${roiId}/image" onerror="this.style.display='none'">
+                        <div class="history-detail-grid">
+                            <div class="history-detail-item">
+                                <label>OCR Value</label>
+                                <div class="value" style="color: ${confidence < 80 && confidence > 0 ? 'var(--error)' : 'var(--primary)'};">
+                                    ${value} ${unit}
+                                </div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>Validated Value</label>
+                                <div class="value" style="color: ${validatedValue !== undefined ? 'var(--success)' : 'var(--text-3)'};">
+                                    ${validatedValue !== undefined ? validatedValue + ' ' + unit : 'Not validated'}
+                                    ${validatedAt ? `<div style="font-size: 11px; color: var(--text-3);">${validatedAt}</div>` : ''}
+                                </div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>Saved On</label>
+                                <div class="value">${time}</div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>Confidence</label>
+                                <div class="value">
+                                    ${confidence > 0 ? confidence.toFixed(1) + '%' : '--'}
+                                    ${confidence > 0 ? `<div class="confidence-bar" style="margin-top: 4px;"><div class="confidence-bar-fill ${barClass}" style="width: ${confidence}%"></div></div>` : ''}
+                                </div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>Raw Text</label>
+                                <div class="value">${rawText}</div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>ROI Coordinates</label>
+                                <div class="value" style="font-family: monospace; font-size: 12px;">
+                                    X: ${roiData.roi?.x || 0}, Y: ${roiData.roi?.y || 0}, W: ${roiData.roi?.width || 0}, H: ${roiData.roi?.height || 0}
+                                </div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button class="btn btn-primary" onclick="applySavedROI(${JSON.stringify(roiData.roi)}); this.closest('.history-detail-dialog').remove();">Apply ROI</button>
+                            <button class="btn btn-secondary" onclick="testSavedROI(${JSON.stringify(roiData.roi)}, '${roiId}'); this.closest('.history-detail-dialog').remove();">Test Extract</button>
+                            <button class="btn btn-secondary" onclick="showValidateDialog('${roiId}', ${JSON.stringify(roiData).replace(/"/g, '&quot;')})" style="background: var(--warning); color: #000;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="margin-right: 4px;">
+                                    <path d="M9 11l3 3L22 4"></path>
+                                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                                </svg>
+                                Validate
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(dialog);
+        }
+
+        function showValidateDialog(roiId, roiData) {
+            const name = document.getElementById('live-camera-select').value;
+            const camera = cameras[name] || {};
+            const unit = camera.unit || '';
+            const currentValue = roiData.validated_value !== undefined ? roiData.validated_value : (roiData.extracted_value || '');
+
+            // Close the detail dialog first
+            document.querySelectorAll('.history-detail-dialog').forEach(d => d.remove());
+
+            const dialog = document.createElement('div');
+            dialog.className = 'history-detail-dialog';
+            dialog.onclick = (e) => { if (e.target === dialog) dialog.remove(); };
+            dialog.innerHTML = `
+                <div class="history-detail-content" style="max-width: 400px;">
+                    <div class="history-detail-header">
+                        <h3>Validate OCR Value</h3>
+                        <button class="modal-close" onclick="this.closest('.history-detail-dialog').remove()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="history-detail-body">
+                        <img class="history-detail-image" src="api/saved-rois/${encodeURIComponent(name)}/${roiId}/image" style="max-height: 150px;" onerror="this.style.display='none'">
+                        <p style="margin: 16px 0 8px; color: var(--text-2);">
+                            What is the correct value shown in this image?
+                        </p>
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <input type="text" id="validate-value-input" class="form-control"
+                                   value="${currentValue}" placeholder="Enter the correct numeric value"
+                                   style="font-size: 18px; text-align: center;">
+                            <small style="color: var(--text-3);">Unit: ${unit || 'none'}</small>
+                        </div>
+                        <p style="font-size: 12px; color: var(--text-3); margin-bottom: 16px;">
+                            This helps train the OCR system to better recognize values from your camera.
+                            After validating several ROIs, use "Train OCR" to find optimal settings.
+                        </p>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-primary" onclick="submitValidation('${roiId}')" style="flex: 1;">
+                                Save Validated Value
+                            </button>
+                            <button class="btn btn-secondary" onclick="this.closest('.history-detail-dialog').remove()">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(dialog);
+
+            // Focus the input
+            setTimeout(() => document.getElementById('validate-value-input').focus(), 100);
+        }
+
+        async function submitValidation(roiId) {
+            const name = document.getElementById('live-camera-select').value;
+            const value = document.getElementById('validate-value-input').value.trim();
+
+            if (!value) {
+                toast('Please enter a value', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(`api/saved-rois/${encodeURIComponent(name)}/${roiId}/validate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ value: value })
+                });
+
+                if (res.ok) {
+                    toast('Value validated successfully', 'success');
+                    document.querySelectorAll('.history-detail-dialog').forEach(d => d.remove());
+                    loadSavedROIs();
+                } else {
+                    const err = await res.json();
+                    toast(err.error || 'Failed to validate', 'error');
+                }
+            } catch (e) {
+                toast('Failed to validate value', 'error');
+            }
+        }
+
+        async function trainOCR() {
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) {
+                toast('Please select a camera first', 'error');
+                return;
+            }
+
+            const btn = event.target;
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loading" style="width: 16px; height: 16px;"></div> Training...';
+
+            try {
+                const res = await fetch(`api/saved-rois/${encodeURIComponent(name)}/train`, {
+                    method: 'POST'
+                });
+
+                const data = await res.json();
+
+                if (data.error) {
+                    toast(data.error, 'error');
+                } else {
+                    // Show training results
+                    showTrainingResults(data);
+                }
+            } catch (e) {
+                toast('Training failed: ' + e.message, 'error');
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="margin-right: 4px;">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+            </svg> Train OCR`;
+        }
+
+        function showTrainingResults(data) {
+            const dialog = document.createElement('div');
+            dialog.className = 'history-detail-dialog';
+            dialog.onclick = (e) => { if (e.target === dialog) dialog.remove(); };
+
+            const best = data.best_config || {};
+            const ranked = data.ranked_configs || [];
+
+            dialog.innerHTML = `
+                <div class="history-detail-content" style="max-width: 500px;">
+                    <div class="history-detail-header">
+                        <h3>OCR Training Results</h3>
+                        <button class="modal-close" onclick="this.closest('.history-detail-dialog').remove()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="history-detail-body">
+                        <div style="background: var(--bg); padding: 16px; border-radius: 8px; margin-bottom: 16px;">
+                            <h4 style="margin: 0 0 8px; color: var(--success);">Best Configuration</h4>
+                            <p style="margin: 4px 0; font-size: 14px;">
+                                <strong>Preprocessing:</strong> ${best.preprocessing || 'auto'}<br>
+                                <strong>PSM Mode:</strong> ${best.psm || 7}<br>
+                                <strong>Accuracy:</strong> ${(best.accuracy || 0).toFixed(1)}% (${best.matches || 0}/${best.total || 0} matches)
+                            </p>
+                        </div>
+
+                        <p style="margin: 0 0 8px; font-weight: 600;">Tested on ${data.validated_count || 0} validated ROI(s)</p>
+
+                        <div style="margin-top: 16px;">
+                            <h4 style="margin: 0 0 8px;">Top Configurations</h4>
+                            <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
+                                <thead>
+                                    <tr style="background: var(--bg);">
+                                        <th style="padding: 8px; text-align: left;">Preprocessing</th>
+                                        <th style="padding: 8px; text-align: center;">PSM</th>
+                                        <th style="padding: 8px; text-align: right;">Accuracy</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${ranked.map((cfg, i) => `
+                                        <tr style="${i === 0 ? 'background: rgba(76, 175, 80, 0.1);' : ''}">
+                                            <td style="padding: 8px;">${cfg.preprocessing}</td>
+                                            <td style="padding: 8px; text-align: center;">${cfg.psm}</td>
+                                            <td style="padding: 8px; text-align: right;">${(cfg.matches / cfg.total * 100).toFixed(1)}%</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <p style="font-size: 12px; color: var(--text-3); margin-top: 16px;">
+                            To use the best configuration, set the camera's preprocessing to "${best.preprocessing || 'auto'}".
+                        </p>
+
+                        <div style="margin-top: 16px;">
+                            <button class="btn btn-primary" onclick="this.closest('.history-detail-dialog').remove()">Close</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(dialog);
+        }
+
+        // Templates
+        async function saveTemplate() {
+            const name = document.getElementById('live-camera-select').value;
+            const templateName = document.getElementById('template-name-input').value.trim();
+
+            if (!name || !templateName) {
+                toast('Please select a camera and enter a template name', 'error');
+                return;
+            }
+
+            if (currentROI.width <= 0 || currentROI.height <= 0) {
+                toast('Please draw an ROI first', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch('api/templates', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        camera_name: name,
+                        template_name: templateName,
+                        roi: currentROI
+                    })
+                });
+
+                if (res.ok) {
+                    toast('Template saved', 'success');
+                    document.getElementById('template-name-input').value = '';
+                    loadTemplates();
+                } else {
+                    const err = await res.json();
+                    toast(err.error || 'Failed to save template', 'error');
+                }
+            } catch (e) {
+                toast('Failed to save template', 'error');
+            }
+        }
+
+        async function deleteTemplate(name) {
+            if (!confirm(`Delete template "${name}"?`)) return;
+
+            try {
+                const res = await fetch(`api/templates/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                if (res.ok) {
+                    toast('Template deleted', 'success');
+                    loadTemplates();
+                }
+            } catch (e) {
+                toast('Failed to delete template', 'error');
+            }
+        }
+
+        // Discovery
+        async function startDiscovery() {
+            const btn = document.getElementById('discover-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loading"></div> Scanning...';
+
+            const list = document.getElementById('discovery-list');
+            list.innerHTML = '<div class="empty-state"><div class="loading"></div><p style="margin-top: 16px;">Scanning network for cameras...</p></div>';
+
+            try {
+                const res = await fetch('api/discover', { method: 'POST' });
+                const discovered = await res.json();
+
+                if (discovered.length === 0) {
+                    list.innerHTML = `
+                        <div class="empty-state" style="grid-column: 1 / -1;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                            <h3>No cameras found</h3>
+                            <p>No cameras were discovered on your network.<br>Check that cameras are powered on and connected.</p>
+                        </div>
+                    `;
+                } else {
+                    list.innerHTML = discovered.map((cam, idx) => {
+                        const safeName = (cam.name || cam.ip).replace(/'/g, "\\'");
+                        const safeMfr = (cam.manufacturer || '').replace(/'/g, "\\'");
+                        const onvifInfo = cam.onvif_port ? ` • ONVIF:${cam.onvif_port}` : '';
+                        return `
+                        <div class="discovery-item" id="discovery-${idx}">
+                            <div class="discovery-item-header">
+                                <div class="discovery-item-info">
+                                    <h4>${cam.name || cam.ip}</h4>
+                                    <p>${cam.manufacturer ? cam.manufacturer + ' • ' : ''}${cam.ip}:${cam.port}${onvifInfo}</p>
+                                </div>
+                            </div>
+                            <div class="discovery-item-preview" id="discovery-preview-${idx}">
+                                <div class="preview-placeholder">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                        <circle cx="12" cy="13" r="4"></circle>
+                                    </svg>
+                                    <div class="loading" style="margin-top: 8px;"></div>
+                                    <p style="margin-top: 8px;">Loading preview...</p>
+                                </div>
+                            </div>
+                            <div class="discovery-item-actions">
+                                <button class="btn btn-secondary btn-sm" onclick="previewDiscoveredCamera(${idx}, '${cam.ip}', ${cam.port}, '${cam.stream_url}')">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                        <circle cx="12" cy="12" r="3"></circle>
+                                    </svg>
+                                    Preview
+                                </button>
+                                <button class="btn btn-primary btn-sm" onclick="addDiscoveredCamera('${cam.ip}', ${cam.port}, '${cam.stream_url}', '${safeMfr}', '${safeName}')">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                                    </svg>
+                                    Add
+                                </button>
+                            </div>
+                        </div>`;
+                    }).join('');
+
+                    // Auto-load previews for discovered cameras
+                    discovered.forEach((cam, idx) => {
+                        loadDiscoveryPreview(idx, cam.ip, cam.port, cam.stream_url);
+                    });
+                }
+            } catch (e) {
+                list.innerHTML = '<div class="empty-state"><p style="color: var(--error);">Discovery failed</p></div>';
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                Scan Network
+            `;
+        }
+
+        async function loadDiscoveryPreview(idx, ip, port, streamUrl) {
+            const previewEl = document.getElementById(`discovery-preview-${idx}`);
+            if (!previewEl) return;
+
+            try {
+                // Try to capture a frame using the test endpoint
+                const testUrl = streamUrl.replace('{user}', 'admin').replace('{pass}', 'admin');
+                const res = await fetch('api/test-capture', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: testUrl, username: '', password: '' })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.frame) {
+                        previewEl.innerHTML = `<img src="data:image/png;base64,${data.frame}" alt="Preview">`;
+                        return;
+                    }
+                }
+                previewEl.innerHTML = `<div class="preview-error">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                        <circle cx="12" cy="13" r="4"></circle>
+                    </svg>
+                    <span>Credentials required</span>
+                    <small>Add camera and configure username/password</small>
+                </div>`;
+            } catch (e) {
+                previewEl.innerHTML = `<div class="preview-error">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                        <circle cx="12" cy="13" r="4"></circle>
+                    </svg>
+                    <span>Credentials required</span>
+                    <small>Add camera and configure username/password</small>
+                </div>`;
+            }
+        }
+
+        function previewDiscoveredCamera(idx, ip, port, streamUrl) {
+            const previewEl = document.getElementById(`discovery-preview-${idx}`);
+            if (!previewEl) return;
+
+            previewEl.innerHTML = '<div class="preview-placeholder"><div class="loading"></div><p style="margin-top: 8px;">Loading preview...</p></div>';
+            loadDiscoveryPreview(idx, ip, port, streamUrl);
+        }
+
+        function addDiscoveredCamera(ip, port, streamUrl, manufacturer, name) {
+            // Open the modal first
+            openAddCameraModal();
+            document.getElementById('camera-modal-title').textContent = 'Add Discovered Camera';
+
+            // Set camera name
+            const cameraName = name || (manufacturer ? `${manufacturer} ${ip}` : `Camera ${ip}`);
+            document.getElementById('camera-name').value = cameraName;
+
+            // Set the full URL with placeholder credentials
+            const fullUrl = streamUrl.replace('{user}', 'admin').replace('{pass}', 'admin');
+            document.getElementById('camera-url').value = fullUrl;
+
+            // Parse URL to populate builder fields
+            parseUrlToFields();
+
+            // Clear password since it's just a placeholder
+            document.getElementById('camera-password').value = '';
+
+            // Set default port if not in URL
+            if (!document.getElementById('camera-port').value) {
+                document.getElementById('camera-port').value = port || '554';
+            }
+        }
+
+        // Utilities
+        function updateStatus() {
+            const count = Object.keys(cameras).length;
+            document.getElementById('camera-count').textContent = `${count} camera${count !== 1 ? 's' : ''}`;
+        }
+
+        function toast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                    ${type === 'success' ? '<polyline points="20 6 9 17 4 12"></polyline>' :
+                      type === 'error' ? '<circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>' :
+                      '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line>'}
+                </svg>
+                <span>${message}</span>
+            `;
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 200);
+            }, 3000);
+        }
+
+        // AI Settings
+        const AI_MODEL_HINTS = {
+            'none': '',
+            'openai': 'Default: gpt-4o (supports vision)',
+            'anthropic': 'Default: claude-sonnet-4-20250514',
+            'google': 'Default: gemini-1.5-flash',
+            'ollama': 'Default: llava (requires vision model)',
+            'custom': 'Enter model name from your provider',
+            'google-vision': 'Uses TEXT_DETECTION (no model needed)',
+            'google-docai': 'Requires processor path in URL field',
+            'azure-ocr': 'Uses Read API v3.2 (no model needed)',
+            'aws-textract': 'Uses detect-document-text (no model needed)'
+        };
+
+        async function loadAIConfig() {
+            try {
+                const res = await fetch('api/ai-config');
+                const config = await res.json();
+
+                document.getElementById('ai-provider').value = config.provider;
+                document.getElementById('ai-url').value = config.api_url || '';
+                document.getElementById('ai-model').value = config.model || '';
+                document.getElementById('ai-region').value = config.region || '';
+                document.getElementById('ai-enable-ocr').checked = config.enabled_for_ocr;
+                document.getElementById('ai-enable-description').checked = config.enabled_for_description;
+
+                onAIProviderChange();
+
+                if (config.has_api_key) {
+                    document.getElementById('ai-apikey').placeholder = '••••••••••••••••';
+                }
+            } catch (e) {
+                console.error('Failed to load AI config:', e);
+            }
+        }
+
+        function onAIProviderChange() {
+            const provider = document.getElementById('ai-provider').value;
+            const configFields = document.getElementById('ai-config-fields');
+            const urlGroup = document.getElementById('ai-url-group');
+            const urlLabel = document.getElementById('ai-url-label');
+            const urlHint = document.getElementById('ai-url-hint');
+            const apiKeyGroup = document.getElementById('ai-apikey-group');
+            const regionGroup = document.getElementById('ai-region-group');
+            const modelHint = document.getElementById('ai-model-hint');
+            const modelGroup = document.getElementById('ai-model').parentElement;
+            const descriptionCheckbox = document.getElementById('ai-enable-description').parentElement;
+            const testSection = document.getElementById('ai-test-section');
+
+            const cloudOcrProviders = ['google-vision', 'google-docai', 'azure-ocr', 'aws-textract'];
+            const isCloudOcr = cloudOcrProviders.includes(provider);
+
+            if (provider === 'none') {
+                configFields.style.display = 'none';
+                testSection.style.display = 'none';
+            } else {
+                configFields.style.display = 'block';
+                testSection.style.display = 'block';
+
+                // Show/hide URL field
+                const needsUrl = provider === 'ollama' || provider === 'custom' || provider === 'azure-ocr' || provider === 'google-docai';
+                urlGroup.style.display = needsUrl ? 'block' : 'none';
+
+                // Update URL hint based on provider
+                if (provider === 'ollama') {
+                    urlLabel.textContent = 'API URL';
+                    urlHint.textContent = 'URL to your Ollama server (e.g., http://localhost:11434)';
+                } else if (provider === 'custom') {
+                    urlLabel.textContent = 'API URL';
+                    urlHint.textContent = 'Base URL of OpenAI-compatible API (e.g., http://localhost:1234/v1)';
+                } else if (provider === 'azure-ocr') {
+                    urlLabel.textContent = 'Endpoint URL';
+                    urlHint.textContent = 'Azure endpoint (e.g., https://westus.api.cognitive.microsoft.com)';
+                } else if (provider === 'google-docai') {
+                    urlLabel.textContent = 'Processor Path';
+                    urlHint.textContent = 'Format: projects/PROJECT_ID/locations/LOCATION/processors/PROCESSOR_ID';
+                }
+
+                // Show/hide region field for AWS
+                regionGroup.style.display = provider === 'aws-textract' ? 'block' : 'none';
+
+                // Show API key for all except Ollama
+                apiKeyGroup.style.display = provider === 'ollama' ? 'none' : 'block';
+
+                // Update API key hint for AWS
+                const apiKeyHint = apiKeyGroup.querySelector('p');
+                if (provider === 'aws-textract') {
+                    apiKeyHint.textContent = 'Format: ACCESS_KEY_ID:SECRET_ACCESS_KEY';
+                } else {
+                    apiKeyHint.textContent = 'Your API key is stored locally and never shared.';
+                }
+
+                // Hide model field and description checkbox for cloud OCR services
+                modelGroup.style.display = isCloudOcr ? 'none' : 'block';
+                descriptionCheckbox.style.display = isCloudOcr ? 'none' : 'flex';
+
+                // Update model hint
+                modelHint.textContent = AI_MODEL_HINTS[provider] || 'Enter your model name';
+            }
+        }
+
+        async function saveAIConfig() {
+            const provider = document.getElementById('ai-provider').value;
+            const apiKey = document.getElementById('ai-apikey').value;
+            const apiUrl = document.getElementById('ai-url').value;
+            const model = document.getElementById('ai-model').value;
+            const region = document.getElementById('ai-region').value;
+            const enableOcr = document.getElementById('ai-enable-ocr').checked;
+            const enableDescription = document.getElementById('ai-enable-description').checked;
+
+            try {
+                const res = await fetch('api/ai-config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        provider,
+                        api_key: apiKey,
+                        api_url: apiUrl,
+                        model,
+                        region,
+                        enabled_for_ocr: enableOcr,
+                        enabled_for_description: enableDescription
+                    })
+                });
+
+                if (res.ok) {
+                    toast('AI configuration saved', 'success');
+                } else {
+                    toast('Failed to save configuration', 'error');
+                }
+            } catch (e) {
+                toast('Error: ' + e.message, 'error');
+            }
+        }
+
+        let aiTestImageBase64 = null;
+
+        function onAITestSourceChange() {
+            const source = document.getElementById('ai-test-source').value;
+            document.getElementById('ai-test-upload-section').style.display = source === 'upload' ? 'block' : 'none';
+            document.getElementById('ai-test-camera-section').style.display = source === 'camera' ? 'block' : 'none';
+            aiTestImageBase64 = null;
+
+            if (source === 'camera') {
+                // Populate camera dropdown
+                const select = document.getElementById('ai-test-camera');
+                const cameraNames = Object.keys(cameras);
+                select.innerHTML = '<option value="">-- Select Camera --</option>' +
+                    cameraNames.map(name => `<option value="${name}">${name}</option>`).join('');
+            }
+        }
+
+        function onAITestFileSelect() {
+            const file = document.getElementById('ai-test-file').files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                aiTestImageBase64 = e.target.result.split(',')[1];  // Remove data:image/...;base64, prefix
+                document.getElementById('ai-test-preview-img').src = e.target.result;
+                document.getElementById('ai-test-preview-upload').style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function onAITestCameraChange() {
+            const cameraName = document.getElementById('ai-test-camera').value;
+            if (!cameraName) {
+                document.getElementById('ai-test-preview-camera').style.display = 'none';
+                aiTestImageBase64 = null;
+                return;
+            }
+
+            // Fetch camera preview with ROI
+            try {
+                const res = await fetch(`api/preview/${encodeURIComponent(cameraName)}?roi=true`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.frame) {
+                        aiTestImageBase64 = data.roi_frame || data.frame;
+                        document.getElementById('ai-test-camera-img').src = 'data:image/png;base64,' + data.frame;
+                        document.getElementById('ai-test-preview-camera').style.display = 'block';
+                    }
+                }
+            } catch (e) {
+                toast('Failed to load camera preview', 'error');
+            }
+        }
+
+        async function testAIProvider() {
+            const testBtn = document.getElementById('test-ai-btn');
+            const resultsCard = document.getElementById('ai-test-results');
+            const resultsContent = document.getElementById('ai-test-content');
+
+            const source = document.getElementById('ai-test-source').value;
+            let imageBase64 = aiTestImageBase64;
+            let cameraName = null;
+
+            if (source === 'camera') {
+                cameraName = document.getElementById('ai-test-camera').value;
+                if (!cameraName) {
+                    toast('Please select a camera', 'error');
+                    return;
+                }
+            } else if (!imageBase64) {
+                toast('Please select an image first', 'error');
+                return;
+            }
+
+            testBtn.disabled = true;
+            testBtn.innerHTML = '<div class="loading" style="width: 16px; height: 16px;"></div> Testing...';
+            resultsCard.style.display = 'block';
+            resultsContent.innerHTML = '<div class="loading"></div><p style="text-align: center; margin-top: 12px;">Testing AI provider...</p>';
+
+            try {
+                const payload = imageBase64 ? { image: imageBase64 } : { camera: cameraName };
+                const res = await fetch('api/ai-test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+
+                if (data.error) {
+                    resultsContent.innerHTML = `<p style="color: var(--error);">Error: ${data.error}</p>`;
+                } else {
+                    let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
+
+                    if (data.description) {
+                        html += `
+                            <div>
+                                <strong>Scene Description:</strong>
+                                <p style="background: var(--bg); padding: 12px; border-radius: 6px; margin-top: 4px;">${data.description}</p>
+                            </div>
+                        `;
+                    }
+
+                    if (data.ocr) {
+                        html += `
+                            <div>
+                                <strong>OCR Result:</strong>
+                                <p style="background: var(--bg); padding: 12px; border-radius: 6px; margin-top: 4px;">${data.ocr}</p>
+                            </div>
+                        `;
+                    }
+
+                    if (!data.description && !data.ocr) {
+                        html += '<p>No features enabled. Enable OCR enhancement or scene description above.</p>';
+                    }
+
+                    html += '</div>';
+                    resultsContent.innerHTML = html;
+                    toast('AI test completed', 'success');
+                }
+            } catch (e) {
+                resultsContent.innerHTML = `<p style="color: var(--error);">Error: ${e.message}</p>`;
+            }
+
+            testBtn.disabled = false;
+            testBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg> Test AI Provider`;
+        }
+
+        // Load AI config when visiting AI settings page
+        document.querySelector('[data-page="ai-settings"]').addEventListener('click', loadAIConfig);
+    </script>
+</body>
+</html>
