@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.1] - 2026
+
+### Added
+- URL Builder in Add Camera dialog - toggle between full URL input or build from components
+- Bidirectional URL parsing - enter full URL to auto-populate fields, or fill fields to generate URL
+- Support for RTSP, HTTP, HTTPS protocols with host, port, path, username, password fields
+- Live URL preview when using Build URL mode
+- Common stream path hints for easier configuration
+
 ## [1.2.0] - 2026
 
 ### Changed

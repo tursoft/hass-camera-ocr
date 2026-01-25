@@ -1055,6 +1055,56 @@ WEB_UI = '''
 
         .form-check input { width: 16px; height: 16px; }
 
+        /* URL Mode Toggle */
+        .url-mode-toggle {
+            display: flex;
+            gap: 0;
+            margin-top: 8px;
+        }
+        .url-mode-btn {
+            flex: 1;
+            padding: 8px 16px;
+            border: 1px solid var(--border);
+            background: var(--card-bg);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .url-mode-btn:first-child {
+            border-radius: 6px 0 0 6px;
+        }
+        .url-mode-btn:last-child {
+            border-radius: 0 6px 6px 0;
+            border-left: none;
+        }
+        .url-mode-btn:hover {
+            background: var(--bg);
+        }
+        .url-mode-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+        .form-hint {
+            display: block;
+            margin-top: 4px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        .url-preview {
+            background: var(--bg);
+            border-radius: 6px;
+            padding: 12px;
+            border: 1px solid var(--border);
+        }
+        .url-preview-text {
+            font-family: monospace;
+            font-size: 12px;
+            color: var(--primary);
+            word-break: break-all;
+        }
+
         /* Preview Container */
         .preview-container {
             display: grid;
@@ -1567,19 +1617,64 @@ WEB_UI = '''
                     <label class="form-label">Camera Name *</label>
                     <input type="text" id="camera-name" class="form-input" placeholder="e.g., Boiler Temperature">
                 </div>
+
+                <!-- URL Input Mode Toggle -->
                 <div class="form-group">
                     <label class="form-label">Stream URL *</label>
-                    <input type="text" id="camera-url" class="form-input" placeholder="rtsp://user:pass@192.168.1.100:554/stream1">
+                    <div class="url-mode-toggle">
+                        <button type="button" class="url-mode-btn active" id="url-mode-full" onclick="setUrlMode('full')">Full URL</button>
+                        <button type="button" class="url-mode-btn" id="url-mode-build" onclick="setUrlMode('build')">Build URL</button>
+                    </div>
                 </div>
+
+                <!-- Full URL Input -->
+                <div class="form-group url-input-full" id="url-input-full">
+                    <input type="text" id="camera-url" class="form-input" placeholder="rtsp://192.168.1.100:554/stream1" oninput="parseUrlToFields()">
+                    <small class="form-hint">Enter full RTSP/HTTP URL (credentials will be extracted automatically)</small>
+                </div>
+
+                <!-- Build URL Inputs -->
+                <div class="url-input-build" id="url-input-build" style="display: none;">
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 0 0 100px;">
+                            <label class="form-label">Protocol</label>
+                            <select id="camera-protocol" class="form-select" onchange="buildUrlFromFields()">
+                                <option value="rtsp">RTSP</option>
+                                <option value="http">HTTP</option>
+                                <option value="https">HTTPS</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Host/IP *</label>
+                            <input type="text" id="camera-host" class="form-input" placeholder="192.168.1.100" oninput="buildUrlFromFields()">
+                        </div>
+                        <div class="form-group" style="flex: 0 0 80px;">
+                            <label class="form-label">Port</label>
+                            <input type="text" id="camera-port" class="form-input" placeholder="554" oninput="buildUrlFromFields()">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Stream Path</label>
+                        <input type="text" id="camera-path" class="form-input" placeholder="/stream1" oninput="buildUrlFromFields()">
+                        <small class="form-hint">Common paths: /stream1, /Streaming/Channels/101, /cam/realmonitor?channel=1&subtype=0</small>
+                    </div>
+                </div>
+
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label">Username</label>
-                        <input type="text" id="camera-username" class="form-input">
+                        <input type="text" id="camera-username" class="form-input" oninput="buildUrlFromFields()">
                     </div>
                     <div class="form-group">
                         <label class="form-label">Password</label>
-                        <input type="password" id="camera-password" class="form-input">
+                        <input type="password" id="camera-password" class="form-input" oninput="buildUrlFromFields()">
                     </div>
+                </div>
+
+                <!-- Generated URL Preview -->
+                <div class="form-group url-preview" id="url-preview" style="display: none;">
+                    <label class="form-label">Generated URL</label>
+                    <div class="url-preview-text" id="url-preview-text"></div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
@@ -1838,6 +1933,13 @@ WEB_UI = '''
             document.getElementById('camera-preprocessing').value = 'auto';
             document.getElementById('camera-template').value = '';
             document.getElementById('camera-use-template').checked = false;
+            // Reset URL builder fields
+            document.getElementById('camera-protocol').value = 'rtsp';
+            document.getElementById('camera-host').value = '';
+            document.getElementById('camera-port').value = '';
+            document.getElementById('camera-path').value = '';
+            document.getElementById('url-preview-text').textContent = '';
+            setUrlMode('full');
             document.getElementById('camera-modal').classList.add('active');
         }
 
@@ -1856,11 +1958,139 @@ WEB_UI = '''
             document.getElementById('camera-preprocessing').value = cam.preprocessing || 'auto';
             document.getElementById('camera-template').value = cam.template_name || '';
             document.getElementById('camera-use-template').checked = cam.use_template_matching || false;
+            // Parse existing URL to builder fields
+            setUrlMode('full');
+            parseUrlToFields();
             document.getElementById('camera-modal').classList.add('active');
         }
 
         function closeCameraModal() {
             document.getElementById('camera-modal').classList.remove('active');
+        }
+
+        // URL Mode Toggle
+        let urlMode = 'full';
+        function setUrlMode(mode) {
+            urlMode = mode;
+            document.getElementById('url-mode-full').classList.toggle('active', mode === 'full');
+            document.getElementById('url-mode-build').classList.toggle('active', mode === 'build');
+            document.getElementById('url-input-full').style.display = mode === 'full' ? 'block' : 'none';
+            document.getElementById('url-input-build').style.display = mode === 'build' ? 'block' : 'none';
+            document.getElementById('url-preview').style.display = mode === 'build' ? 'block' : 'none';
+
+            if (mode === 'build') {
+                parseUrlToFields();
+                buildUrlFromFields();
+            }
+        }
+
+        // Parse full URL to individual fields
+        function parseUrlToFields() {
+            const urlInput = document.getElementById('camera-url').value.trim();
+            if (!urlInput) return;
+
+            try {
+                // Handle URLs with credentials in format: protocol://user:pass@host:port/path
+                let protocol = 'rtsp';
+                let host = '';
+                let port = '';
+                let path = '';
+                let username = '';
+                let password = '';
+
+                // Extract protocol
+                const protocolMatch = urlInput.match(/^(rtsp|https?):\/\//i);
+                if (protocolMatch) {
+                    protocol = protocolMatch[1].toLowerCase();
+                }
+
+                // Remove protocol for parsing
+                let remainder = urlInput.replace(/^(rtsp|https?):\/\//i, '');
+
+                // Extract credentials if present (user:pass@)
+                const credMatch = remainder.match(/^([^:@]+):([^@]+)@/);
+                if (credMatch) {
+                    username = decodeURIComponent(credMatch[1]);
+                    password = decodeURIComponent(credMatch[2]);
+                    remainder = remainder.substring(credMatch[0].length);
+                } else {
+                    // Check for username only (user@)
+                    const userMatch = remainder.match(/^([^:@]+)@/);
+                    if (userMatch) {
+                        username = decodeURIComponent(userMatch[1]);
+                        remainder = remainder.substring(userMatch[0].length);
+                    }
+                }
+
+                // Extract host:port/path
+                const hostMatch = remainder.match(/^([^:\/]+)(?::(\d+))?(\/.*)?$/);
+                if (hostMatch) {
+                    host = hostMatch[1];
+                    port = hostMatch[2] || '';
+                    path = hostMatch[3] || '';
+                }
+
+                // Update fields
+                document.getElementById('camera-protocol').value = protocol;
+                document.getElementById('camera-host').value = host;
+                document.getElementById('camera-port').value = port;
+                document.getElementById('camera-path').value = path;
+
+                // Only update username/password if extracted and fields are empty
+                if (username && !document.getElementById('camera-username').value) {
+                    document.getElementById('camera-username').value = username;
+                }
+                if (password && !document.getElementById('camera-password').value) {
+                    document.getElementById('camera-password').value = password;
+                }
+            } catch (e) {
+                console.error('Failed to parse URL:', e);
+            }
+        }
+
+        // Build URL from individual fields
+        function buildUrlFromFields() {
+            const protocol = document.getElementById('camera-protocol').value;
+            const host = document.getElementById('camera-host').value.trim();
+            const port = document.getElementById('camera-port').value.trim();
+            let path = document.getElementById('camera-path').value.trim();
+            const username = document.getElementById('camera-username').value.trim();
+            const password = document.getElementById('camera-password').value;
+
+            if (!host) {
+                document.getElementById('url-preview-text').textContent = 'Enter host/IP to generate URL';
+                return;
+            }
+
+            // Ensure path starts with /
+            if (path && !path.startsWith('/')) {
+                path = '/' + path;
+            }
+
+            // Build URL
+            let url = protocol + '://';
+
+            // Add credentials if provided
+            if (username) {
+                url += encodeURIComponent(username);
+                if (password) {
+                    url += ':' + encodeURIComponent(password);
+                }
+                url += '@';
+            }
+
+            url += host;
+
+            // Add port if specified
+            if (port) {
+                url += ':' + port;
+            }
+
+            url += path;
+
+            // Update the main URL field and preview
+            document.getElementById('camera-url').value = url;
+            document.getElementById('url-preview-text').textContent = url;
         }
 
         async function saveCamera() {
