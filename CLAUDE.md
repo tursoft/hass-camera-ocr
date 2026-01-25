@@ -89,6 +89,30 @@ hass-camera-ocr/
   - `custom_components/hass_camera_ocr/manifest.json` (version field)
   - `README.md` (version badge)
 
+### Auto Version Bump & Git Push
+
+**IMPORTANT: After each successfully completed prompt/task, Claude MUST:**
+
+1. Bump the version number (increment patch version)
+2. Update all version files listed above
+3. Add changelog entry describing the changes
+4. Commit all changes with descriptive message
+5. Push to git
+
+**Manual script available**: `scripts/bump-version.ps1 -Message "description"`
+
+**Or do it manually**:
+```bash
+# 1. Increment patch version in all files (e.g., 1.2.9 -> 1.2.10)
+# 2. Add changelog entry
+# 3. Commit and push
+git add -A
+git commit -m "Feature description (v1.2.10)
+
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+git push
+```
+
 ### Commit Conventions
 
 - Auto commit and push after each completed task
@@ -196,6 +220,10 @@ hass-camera-ocr/
 | 1.2.2 | FFmpeg support for RTSP streams |
 | 1.2.4 | Zoom/rotation controls, ROI drawing fix |
 | 1.2.5 | Value history, unit presets, improved discovery |
+| 1.2.6 | ROI move/resize, improved OCR accuracy |
+| 1.2.7 | Discovery previews, auto-populate Add Camera dialog |
+| 1.2.8 | PTZ controls, AI integration (OpenAI, Anthropic, Google, Ollama) |
+| 1.2.9 | Version bump, auto-bump script added |
 
 ## Testing Checklist
 
