@@ -346,7 +346,19 @@
         .saved-roi-value {
             font-weight: 600;
             color: var(--primary);
-            font-size: 14px;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .saved-roi-value .validated-value {
+            color: var(--success);
+            font-size: 12px;
+            background: rgba(76, 175, 80, 0.15);
+            padding: 1px 4px;
+            border-radius: 3px;
         }
 
         .saved-roi-time {
@@ -3081,7 +3093,10 @@
                             </div>
                             <button class="saved-roi-delete" onclick="event.stopPropagation(); deleteSavedROI('${name}', '${roi.id}')">&times;</button>
                             <div class="saved-roi-info">
-                                <div class="saved-roi-value" id="roi-value-${roi.id}">${isValidated ? roi.validated_value : (roi.extracted_value !== undefined && roi.extracted_value !== null ? roi.extracted_value : '--')}</div>
+                                <div class="saved-roi-value" id="roi-value-${roi.id}">
+                                    <span title="Extracted value">${roi.extracted_value !== undefined && roi.extracted_value !== null ? roi.extracted_value : '--'}</span>
+                                    ${isValidated ? `<span class="validated-value" title="Validated value">${roi.validated_value}</span>` : ''}
+                                </div>
                                 <div class="saved-roi-time">${new Date(roi.timestamp * 1000).toLocaleString()}</div>
                             </div>
                         </div>
