@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.1.0] - 2026
+
+### Added
+- Full admin web interface with Dashboard, Cameras, Live Preview, Templates, and Discovery pages
+- Visual ROI selection - click and drag on camera preview to select extraction area
+- Live preview with ROI borders and extracted value overlay
+- Template matching for automatic ROI tracking (works even when camera rotates/moves)
+- ONVIF camera discovery to automatically find cameras on network
+- Template saving and management
+- Camera CRUD operations from web UI (add, edit, delete)
+- Real-time value display with confidence indicators
+- Toast notifications for user feedback
+- Dark theme matching Home Assistant style
+
+### Changed
+- Complete rewrite of web UI with modern, user-friendly design
+- Improved preprocessing options
+
 ## [1.0.1] - 2026
 
 ### Fixed

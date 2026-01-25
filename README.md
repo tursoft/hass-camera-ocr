@@ -5,7 +5,7 @@
 <h1 align="center">Camera Data Extractor for Home Assistant</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.1-blue.svg" alt="Version 1.0.1">
+  <img src="https://img.shields.io/badge/version-1.1.0-blue.svg" alt="Version 1.1.0">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License MIT">
   <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=tursoft&repository=ha-camera-data-extractor&category=integration">
     <img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open in HACS">
