@@ -6,14 +6,19 @@ RUN apk add --no-cache \
     python3 \
     py3-pip \
     py3-numpy \
-    py3-opencv \
     tesseract-ocr \
     tesseract-ocr-data-eng \
     nginx \
+    # OpenCV dependencies
+    libstdc++ \
+    libgcc \
+    libgomp \
     && pip3 install --no-cache-dir --break-system-packages \
     flask \
     flask-cors \
     pytesseract \
+    opencv-python-headless \
+    numpy \
     requests
 
 # Copy application files
