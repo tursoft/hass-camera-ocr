@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.2.12] - 2026
+
+### Added
+- Cloud OCR service providers support:
+  - Google Cloud Vision API
+  - Azure Computer Vision (Read API)
+  - AWS Textract
+- Custom OpenAI-compatible API endpoint support
+- Low confidence visual indicators (red text when confidence < 80%)
+- Confidence progress bar in value history table
+- Right-aligned value column in history table
+
+### Changed
+- Improved AI provider configuration UI with better organization
+- Updated model hints for all AI providers
+
+## [1.2.11] - 2026
+
+### Added
+- Test button on each saved ROI to re-run extraction
+- Test All ROIs button to find best configuration
+- Saved ROIs now outside scrollable area (not affected by zoom/scroll)
+
+### Improved
+- OCR accuracy with better preprocessing:
+  - Added padding to prevent digit cutoff
+  - Larger scaling for small images (5x for tiny regions)
+  - Morphological cleanup for digit segments
+  - Sharpening filter to enhance digit edges
+  - Better adaptive thresholding
+
+### Changed
+- Reorganized Live Preview layout for better usability
+
 ## [1.2.10] - 2026
 
 ### Added

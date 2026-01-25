@@ -97,10 +97,11 @@ class DiscoveredCamera:
 @dataclass
 class AIProviderConfig:
     """AI provider configuration."""
-    provider: str = "none"  # none, openai, anthropic, google, ollama
+    provider: str = "none"  # none, openai, anthropic, google, ollama, custom, google-vision, azure-ocr, aws-textract
     api_key: str = ""
-    api_url: str = ""  # For Ollama or custom endpoints
+    api_url: str = ""  # For Ollama, custom endpoints, or cloud OCR endpoints
     model: str = ""  # Model name
+    region: str = ""  # AWS region for Textract
     enabled_for_ocr: bool = False
     enabled_for_description: bool = False
 
@@ -637,7 +638,10 @@ class AIService:
         'openai': 'gpt-4o',
         'anthropic': 'claude-sonnet-4-20250514',
         'google': 'gemini-1.5-flash',
-        'ollama': 'llava'
+        'ollama': 'llava',
+        'google-vision': 'document-text-detection',
+        'azure-ocr': 'read',
+        'aws-textract': 'detect-document-text'
     }
 
     _config: Optional[AIProviderConfig] = None
@@ -679,6 +683,7 @@ class AIService:
             'provider': config.provider,
             'api_url': config.api_url,
             'model': config.model,
+            'region': config.region,
             'enabled_for_ocr': config.enabled_for_ocr,
             'enabled_for_description': config.enabled_for_description,
             'has_api_key': bool(config.api_key)
@@ -693,7 +698,7 @@ class AIService:
             return ""
 
         try:
-            if config.provider == 'openai':
+            if config.provider == 'openai' or config.provider == 'custom':
                 return cls._call_openai(image_base64, "scene")
             elif config.provider == 'anthropic':
                 return cls._call_anthropic(image_base64, "scene")
@@ -718,7 +723,7 @@ class AIService:
         image_to_use = roi_image_base64 or image_base64
 
         try:
-            if config.provider == 'openai':
+            if config.provider == 'openai' or config.provider == 'custom':
                 return cls._call_openai(image_to_use, "ocr")
             elif config.provider == 'anthropic':
                 return cls._call_anthropic(image_to_use, "ocr")
@@ -726,6 +731,12 @@ class AIService:
                 return cls._call_google(image_to_use, "ocr")
             elif config.provider == 'ollama':
                 return cls._call_ollama(image_to_use, "ocr")
+            elif config.provider == 'google-vision':
+                return cls._call_google_vision(image_to_use)
+            elif config.provider == 'azure-ocr':
+                return cls._call_azure_ocr(image_to_use)
+            elif config.provider == 'aws-textract':
+                return cls._call_aws_textract(image_to_use)
         except Exception as e:
             logger.error(f"AI OCR error: {e}")
 
@@ -742,11 +753,19 @@ class AIService:
 
     @classmethod
     def _call_openai(cls, image_base64: str, task: str) -> str:
-        """Call OpenAI API."""
+        """Call OpenAI API or OpenAI-compatible custom endpoint."""
         import urllib.request
 
         config = cls.load_config()
         model = config.model or cls.DEFAULT_MODELS['openai']
+
+        # Use custom URL if provider is 'custom', otherwise use OpenAI default
+        if config.provider == 'custom' and config.api_url:
+            api_url = config.api_url.rstrip('/')
+            if not api_url.endswith('/chat/completions'):
+                api_url = f'{api_url}/chat/completions'
+        else:
+            api_url = 'https://api.openai.com/v1/chat/completions'
 
         headers = {
             'Content-Type': 'application/json',
@@ -766,7 +785,7 @@ class AIService:
         }
 
         req = urllib.request.Request(
-            'https://api.openai.com/v1/chat/completions',
+            api_url,
             data=json.dumps(data).encode('utf-8'),
             headers=headers,
             method='POST'
@@ -869,6 +888,141 @@ class AIService:
         with urllib.request.urlopen(req, timeout=60) as response:
             result = json.loads(response.read().decode('utf-8'))
             return result.get('response', '').strip()
+
+    @classmethod
+    def _call_google_vision(cls, image_base64: str) -> str:
+        """Call Google Cloud Vision API for OCR."""
+        import urllib.request
+
+        config = cls.load_config()
+
+        url = f'https://vision.googleapis.com/v1/images:annotate?key={config.api_key}'
+
+        data = {
+            'requests': [{
+                'image': {'content': image_base64},
+                'features': [{'type': 'TEXT_DETECTION', 'maxResults': 10}]
+            }]
+        }
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(data).encode('utf-8'),
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            annotations = result.get('responses', [{}])[0].get('textAnnotations', [])
+            if annotations:
+                # First annotation contains the full text
+                full_text = annotations[0].get('description', '').strip()
+                # Extract numeric value from the text
+                numbers = re.findall(r'[-+]?\d*\.?\d+', full_text)
+                if numbers:
+                    return numbers[0]
+            return 'none'
+
+    @classmethod
+    def _call_azure_ocr(cls, image_base64: str) -> str:
+        """Call Azure Computer Vision API for OCR."""
+        import urllib.request
+
+        config = cls.load_config()
+        endpoint = config.api_url or 'https://westus.api.cognitive.microsoft.com'
+        endpoint = endpoint.rstrip('/')
+
+        # First, submit the read request
+        url = f'{endpoint}/vision/v3.2/read/analyze'
+
+        image_data = base64.b64decode(image_base64)
+
+        req = urllib.request.Request(
+            url,
+            data=image_data,
+            headers={
+                'Content-Type': 'application/octet-stream',
+                'Ocp-Apim-Subscription-Key': config.api_key
+            },
+            method='POST'
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            operation_location = response.headers.get('Operation-Location')
+
+        if not operation_location:
+            return 'none'
+
+        # Poll for results
+        for _ in range(10):
+            time.sleep(1)
+            req = urllib.request.Request(
+                operation_location,
+                headers={'Ocp-Apim-Subscription-Key': config.api_key},
+                method='GET'
+            )
+            with urllib.request.urlopen(req, timeout=30) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                status = result.get('status')
+                if status == 'succeeded':
+                    text_lines = []
+                    for read_result in result.get('analyzeResult', {}).get('readResults', []):
+                        for line in read_result.get('lines', []):
+                            text_lines.append(line.get('text', ''))
+                    full_text = ' '.join(text_lines)
+                    # Extract numeric value
+                    numbers = re.findall(r'[-+]?\d*\.?\d+', full_text)
+                    if numbers:
+                        return numbers[0]
+                    return 'none'
+                elif status == 'failed':
+                    return 'none'
+
+        return 'none'
+
+    @classmethod
+    def _call_aws_textract(cls, image_base64: str) -> str:
+        """Call AWS Textract API for OCR."""
+        import urllib.request
+        import hashlib
+        import hmac
+        from datetime import datetime
+
+        config = cls.load_config()
+        region = config.region or 'us-east-1'
+
+        # AWS Textract requires signature v4 authentication
+        # For simplicity, we'll use boto3 if available, otherwise basic API
+        try:
+            import boto3
+            client = boto3.client(
+                'textract',
+                region_name=region,
+                aws_access_key_id=config.api_key.split(':')[0] if ':' in config.api_key else config.api_key,
+                aws_secret_access_key=config.api_key.split(':')[1] if ':' in config.api_key else ''
+            )
+
+            image_data = base64.b64decode(image_base64)
+            response = client.detect_document_text(Document={'Bytes': image_data})
+
+            text_lines = []
+            for block in response.get('Blocks', []):
+                if block['BlockType'] == 'LINE':
+                    text_lines.append(block.get('Text', ''))
+
+            full_text = ' '.join(text_lines)
+            # Extract numeric value
+            numbers = re.findall(r'[-+]?\d*\.?\d+', full_text)
+            if numbers:
+                return numbers[0]
+            return 'none'
+        except ImportError:
+            logger.error("boto3 not installed. Install with: pip install boto3")
+            return 'none'
+        except Exception as e:
+            logger.error(f"AWS Textract error: {e}")
+            return 'none'
 
 
 class CameraProcessor:
@@ -1114,14 +1268,18 @@ class CameraProcessor:
         else:
             gray = image.copy()
 
+        # Add padding to prevent digit cutoff at edges
+        pad = 10
+        gray = cv2.copyMakeBorder(gray, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=255)
+
         # Scale up small images significantly for better OCR
         h, w = gray.shape[:2]
-        if h < 50 or w < 50:
+        if h < 60 or w < 60:
+            scale = max(250 / h, 250 / w, 5)
+        elif h < 120 or w < 120:
             scale = max(200 / h, 200 / w, 4)
-        elif h < 100 or w < 100:
-            scale = max(150 / h, 150 / w, 3)
         else:
-            scale = 2
+            scale = 3
         gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
 
         # Enhance contrast for digital displays
@@ -1131,27 +1289,44 @@ class CameraProcessor:
             return gray
         elif method == "threshold":
             _, processed = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            # Morphological cleanup for digits
+            kernel = np.ones((2, 2), np.uint8)
+            processed = cv2.morphologyEx(processed, cv2.MORPH_CLOSE, kernel)
             return processed
         elif method == "adaptive":
-            return cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                         cv2.THRESH_BINARY, 11, 2)
+            processed = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                         cv2.THRESH_BINARY, 15, 3)
+            kernel = np.ones((2, 2), np.uint8)
+            processed = cv2.morphologyEx(processed, cv2.MORPH_CLOSE, kernel)
+            return processed
         elif method == "invert":
             _, processed = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            return cv2.bitwise_not(processed)
+            processed = cv2.bitwise_not(processed)
+            kernel = np.ones((2, 2), np.uint8)
+            processed = cv2.morphologyEx(processed, cv2.MORPH_CLOSE, kernel)
+            return processed
         else:  # auto - try multiple methods and return best
             # Apply CLAHE for better contrast on digital displays
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
             enhanced = clahe.apply(gray)
 
-            # Denoise
-            denoised = cv2.fastNlMeansDenoising(enhanced, None, 10, 7, 21)
+            # Denoise while preserving edges
+            denoised = cv2.bilateralFilter(enhanced, 9, 75, 75)
+
+            # Sharpen to enhance digit edges
+            kernel_sharpen = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+            sharpened = cv2.filter2D(denoised, -1, kernel_sharpen)
 
             # Try Otsu's threshold
-            blurred = cv2.GaussianBlur(denoised, (3, 3), 0)
+            blurred = cv2.GaussianBlur(sharpened, (3, 3), 0)
             _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
+            # Morphological cleanup to connect digit segments
+            kernel = np.ones((2, 2), np.uint8)
+            binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+
             # Determine if we need to invert based on the mean
-            if np.mean(denoised) < 127:
+            if np.mean(sharpened) < 127:
                 return cv2.bitwise_not(binary)
             return binary
 
@@ -1738,6 +1913,12 @@ WEB_UI = '''
             min-height: 500px;
         }
 
+        .preview-main {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
         @media (max-width: 1000px) {
             .preview-container { grid-template-columns: 1fr; }
         }
@@ -1747,7 +1928,8 @@ WEB_UI = '''
             border-radius: 8px;
             overflow: auto;
             position: relative;
-            max-height: 600px;
+            max-height: 500px;
+            flex-shrink: 0;
         }
 
         .preview-wrapper {
@@ -1850,23 +2032,49 @@ WEB_UI = '''
             background: var(--error);
         }
 
-        .saved-roi-apply {
+        .saved-roi-buttons {
             position: absolute;
             top: 4px;
             left: 4px;
-            padding: 2px 6px;
-            border: none;
-            background: rgba(76, 175, 80, 0.9);
-            color: white;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 10px;
+            display: flex;
+            gap: 4px;
             opacity: 0;
             transition: opacity 0.2s;
         }
 
-        .saved-roi-item:hover .saved-roi-apply {
+        .saved-roi-item:hover .saved-roi-buttons {
             opacity: 1;
+        }
+
+        .saved-roi-apply, .saved-roi-test {
+            width: 24px;
+            height: 24px;
+            padding: 0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .saved-roi-apply {
+            background: rgba(76, 175, 80, 0.9);
+            color: white;
+        }
+
+        .saved-roi-test {
+            background: rgba(33, 150, 243, 0.9);
+            color: white;
+        }
+
+        .saved-roi-apply:hover {
+            background: var(--success);
+        }
+
+        .saved-roi-test:hover {
+            background: var(--primary);
         }
 
         .zoom-controls {
@@ -2195,12 +2403,51 @@ WEB_UI = '''
         .history-table tr:hover {
             background: var(--bg);
         }
-        .history-table .value-cell {
+        .history-table td.value-cell {
             font-weight: 600;
             color: var(--primary);
+            text-align: right;
+        }
+        .history-table td.value-cell span {
+            font-weight: 600;
+        }
+        .history-table th.value-header {
+            text-align: right;
         }
         .history-table .error-cell {
             color: var(--error);
+        }
+        .low-confidence {
+            color: var(--error) !important;
+        }
+        .low-confidence-text {
+            font-size: 11px;
+            color: var(--error);
+            opacity: 0.8;
+        }
+        .confidence-bar {
+            width: 80px;
+            height: 8px;
+            background: var(--bg);
+            border-radius: 4px;
+            overflow: hidden;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .confidence-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+        .confidence-bar-fill.high { background: var(--success); }
+        .confidence-bar-fill.medium { background: var(--warning, #f59e0b); }
+        .confidence-bar-fill.low { background: var(--error); }
+        .confidence-text {
+            display: inline-block;
+            width: 35px;
+            text-align: right;
+            margin-right: 8px;
+            font-size: 12px;
         }
         .history-tabs {
             display: flex;
@@ -2379,39 +2626,44 @@ WEB_UI = '''
                     </div>
 
                     <div class="preview-container">
-                        <div class="preview-frame" id="preview-frame">
-                            <div class="preview-placeholder" id="preview-placeholder">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                                    <circle cx="12" cy="13" r="4"></circle>
-                                </svg>
-                                <p>Select a camera and click Refresh to load preview</p>
-                            </div>
-                            <div class="zoom-controls" id="zoom-controls" style="display: none;">
-                                <button class="zoom-btn" onclick="zoomOut()" title="Zoom Out">−</button>
-                                <span class="zoom-level" id="zoom-level">100%</span>
-                                <button class="zoom-btn" onclick="zoomIn()" title="Zoom In">+</button>
-                                <button class="zoom-btn" onclick="resetZoom()" title="Reset Zoom">⟲</button>
-                                <div class="ptz-controls">
-                                    <button class="zoom-btn ptz-btn" onclick="ptzMove('up')" title="Tilt Up">▲</button>
-                                    <div class="ptz-row">
-                                        <button class="zoom-btn ptz-btn" onclick="ptzMove('left')" title="Pan Left">◄</button>
-                                        <button class="zoom-btn ptz-btn ptz-home" onclick="ptzMove('home')" title="Home">⌂</button>
-                                        <button class="zoom-btn ptz-btn" onclick="ptzMove('right')" title="Pan Right">►</button>
+                        <div class="preview-main">
+                            <div class="preview-frame" id="preview-frame">
+                                <div class="preview-placeholder" id="preview-placeholder">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                        <circle cx="12" cy="13" r="4"></circle>
+                                    </svg>
+                                    <p>Select a camera and click Refresh to load preview</p>
+                                </div>
+                                <div class="zoom-controls" id="zoom-controls" style="display: none;">
+                                    <button class="zoom-btn" onclick="zoomOut()" title="Zoom Out">−</button>
+                                    <span class="zoom-level" id="zoom-level">100%</span>
+                                    <button class="zoom-btn" onclick="zoomIn()" title="Zoom In">+</button>
+                                    <button class="zoom-btn" onclick="resetZoom()" title="Reset Zoom">⟲</button>
+                                    <div class="ptz-controls">
+                                        <button class="zoom-btn ptz-btn" onclick="ptzMove('up')" title="Tilt Up">▲</button>
+                                        <div class="ptz-row">
+                                            <button class="zoom-btn ptz-btn" onclick="ptzMove('left')" title="Pan Left">◄</button>
+                                            <button class="zoom-btn ptz-btn ptz-home" onclick="ptzMove('home')" title="Home">⌂</button>
+                                            <button class="zoom-btn ptz-btn" onclick="ptzMove('right')" title="Pan Right">►</button>
+                                        </div>
+                                        <button class="zoom-btn ptz-btn" onclick="ptzMove('down')" title="Tilt Down">▼</button>
                                     </div>
-                                    <button class="zoom-btn ptz-btn" onclick="ptzMove('down')" title="Tilt Down">▼</button>
+                                </div>
+                                <div class="preview-wrapper" id="preview-wrapper">
+                                    <img id="preview-image" style="display: none;" />
+                                    <canvas id="preview-canvas" class="preview-canvas" style="display: none;"></canvas>
                                 </div>
                             </div>
-                            <div class="preview-wrapper" id="preview-wrapper">
-                                <img id="preview-image" style="display: none;" />
-                                <canvas id="preview-canvas" class="preview-canvas" style="display: none;"></canvas>
-                            </div>
 
-                            <!-- Saved ROIs Section -->
+                            <!-- Saved ROIs Section - Outside scrollable area -->
                             <div class="saved-rois-section" id="saved-rois-section" style="display: none;">
                                 <div class="saved-rois-header">
                                     <span>Saved ROIs</span>
-                                    <button class="btn btn-success btn-sm" onclick="saveCurrentROI()">Save Current ROI</button>
+                                    <div style="display: flex; gap: 8px;">
+                                        <button class="btn btn-primary btn-sm" onclick="testAllROIs()" id="test-all-btn">Test All</button>
+                                        <button class="btn btn-success btn-sm" onclick="saveCurrentROI()">Save Current</button>
+                                    </div>
                                 </div>
                                 <div class="saved-rois-list" id="saved-rois-list"></div>
                             </div>
@@ -2527,10 +2779,18 @@ WEB_UI = '''
                         <label class="form-label">AI Provider</label>
                         <select id="ai-provider" class="form-input" onchange="onAIProviderChange()">
                             <option value="none">None (Disabled)</option>
-                            <option value="openai">OpenAI (GPT-4o)</option>
-                            <option value="anthropic">Anthropic (Claude)</option>
-                            <option value="google">Google (Gemini)</option>
-                            <option value="ollama">Ollama (Local)</option>
+                            <optgroup label="AI Vision Models">
+                                <option value="openai">OpenAI (GPT-4o)</option>
+                                <option value="anthropic">Anthropic (Claude)</option>
+                                <option value="google">Google (Gemini)</option>
+                                <option value="ollama">Ollama (Local)</option>
+                                <option value="custom">Custom (OpenAI-compatible)</option>
+                            </optgroup>
+                            <optgroup label="Cloud OCR Services">
+                                <option value="google-vision">Google Cloud Vision</option>
+                                <option value="azure-ocr">Azure Computer Vision</option>
+                                <option value="aws-textract">AWS Textract</option>
+                            </optgroup>
                         </select>
                     </div>
 
@@ -2544,10 +2804,18 @@ WEB_UI = '''
                         </div>
 
                         <div class="form-group" id="ai-url-group" style="display: none;">
-                            <label class="form-label">Server URL</label>
+                            <label class="form-label" id="ai-url-label">API URL</label>
                             <input type="text" id="ai-url" class="form-input" placeholder="http://localhost:11434">
-                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;">
+                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;" id="ai-url-hint">
                                 URL to your Ollama or compatible server.
+                            </p>
+                        </div>
+
+                        <div class="form-group" id="ai-region-group" style="display: none;">
+                            <label class="form-label">AWS Region</label>
+                            <input type="text" id="ai-region" class="form-input" placeholder="us-east-1">
+                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;">
+                                AWS region for Textract (e.g., us-east-1, eu-west-1)
                             </p>
                         </div>
 
@@ -2933,14 +3201,24 @@ WEB_UI = '''
             if (history.length > 0) {
                 const rows = history.slice().reverse().map(entry => {
                     const time = new Date(entry.timestamp * 1000).toLocaleString();
+                    const confidence = entry.confidence || 0;
+                    const isLowConfidence = confidence < 80;
+                    const valueClass = isLowConfidence ? 'low-confidence' : '';
                     const valueDisplay = entry.error
                         ? `<span class="error-cell">${entry.error}</span>`
-                        : `<span class="value-cell">${entry.value !== null ? entry.value : '--'} ${unit}</span>`;
+                        : `<span class="${valueClass}">${entry.value !== null ? entry.value : '--'} ${unit}</span>`;
+
+                    // Confidence bar
+                    const barClass = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
+                    const confidenceDisplay = entry.confidence
+                        ? `<span class="confidence-text">${confidence.toFixed(0)}%</span><div class="confidence-bar"><div class="confidence-bar-fill ${barClass}" style="width: ${confidence}%"></div></div>`
+                        : '--';
+
                     return `
                         <tr>
                             <td>${time}</td>
-                            <td>${valueDisplay}</td>
-                            <td>${entry.confidence ? entry.confidence.toFixed(0) + '%' : '--'}</td>
+                            <td class="value-cell">${valueDisplay}</td>
+                            <td>${confidenceDisplay}</td>
                             <td>${entry.raw_text || '--'}</td>
                         </tr>
                     `;
@@ -2951,7 +3229,7 @@ WEB_UI = '''
                         <thead>
                             <tr>
                                 <th>Time</th>
-                                <th>Value</th>
+                                <th class="value-header">Value</th>
                                 <th>Confidence</th>
                                 <th>Raw Text</th>
                             </tr>
@@ -3012,6 +3290,9 @@ WEB_UI = '''
                 const statusText = hasError ? 'Error' : 'OK';
                 const displayValue = data.value !== null ? data.value : '--';
                 const time = data.timestamp ? new Date(data.timestamp * 1000).toLocaleTimeString() : '';
+                const confidence = data.confidence || 0;
+                const isLowConfidence = confidence < 80 && !hasError;
+                const valueClass = isLowConfidence ? 'low-confidence' : '';
 
                 const description = data.video_description || '';
                 return `
@@ -3020,12 +3301,13 @@ WEB_UI = '''
                             <div class="value-card-name">${name}</div>
                             <div class="value-card-status ${statusClass}">${statusText}</div>
                         </div>
-                        <div class="value-card-value">
+                        <div class="value-card-value ${valueClass}">
                             ${displayValue}<span class="value-card-unit">${camera.unit || data.unit || ''}</span>
                         </div>
                         <div class="value-card-meta">
                             ${hasError ? `<span style="color: var(--error);">${data.error}</span>` :
-                              `Confidence: ${(data.confidence || 0).toFixed(0)}% • ${time}`}
+                              `Confidence: ${confidence.toFixed(0)}% • ${time}`}
+                            ${isLowConfidence ? '<span class="low-confidence-text"> (Low)</span>' : ''}
                         </div>
                         ${description ? `<div class="value-card-description">${description}</div>` : ''}
                     </div>
@@ -3802,12 +4084,15 @@ WEB_UI = '''
                 if (rois.length > 0) {
                     section.style.display = 'block';
                     list.innerHTML = rois.map(roi => `
-                        <div class="saved-roi-item">
+                        <div class="saved-roi-item" data-roi-id="${roi.id}">
                             <img src="api/saved-rois/${encodeURIComponent(name)}/${roi.id}/image" alt="ROI">
-                            <button class="saved-roi-apply" onclick="applySavedROI(${JSON.stringify(roi.roi).replace(/"/g, '&quot;')})">Apply</button>
+                            <div class="saved-roi-buttons">
+                                <button class="saved-roi-apply" onclick="applySavedROI(${JSON.stringify(roi.roi).replace(/"/g, '&quot;')})" title="Apply">&#x2714;</button>
+                                <button class="saved-roi-test" onclick="testSavedROI(${JSON.stringify(roi.roi).replace(/"/g, '&quot;')}, '${roi.id}')" title="Test">&#x25B6;</button>
+                            </div>
                             <button class="saved-roi-delete" onclick="deleteSavedROI('${name}', '${roi.id}')">&times;</button>
                             <div class="saved-roi-info">
-                                <div class="saved-roi-value">${roi.extracted_value !== undefined ? roi.extracted_value : '--'}</div>
+                                <div class="saved-roi-value" id="roi-value-${roi.id}">${roi.extracted_value !== undefined && roi.extracted_value !== null ? roi.extracted_value : '--'}</div>
                                 <div class="saved-roi-time">${new Date(roi.timestamp * 1000).toLocaleString()}</div>
                             </div>
                         </div>
@@ -3926,6 +4211,135 @@ WEB_UI = '''
             updateROIDisplay();
             drawROI();
             toast('ROI applied', 'success');
+        }
+
+        async function testAllROIs() {
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) {
+                toast('Please select a camera first', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('test-all-btn');
+            btn.disabled = true;
+            btn.textContent = 'Testing...';
+
+            try {
+                const res = await fetch(`api/saved-rois/${encodeURIComponent(name)}`);
+                const rois = await res.json();
+
+                if (rois.length === 0) {
+                    toast('No saved ROIs to test', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Test All';
+                    return;
+                }
+
+                let bestResult = null;
+                let bestConfidence = 0;
+
+                for (const roi of rois) {
+                    const valueEl = document.getElementById(`roi-value-${roi.id}`);
+                    if (valueEl) {
+                        valueEl.textContent = '...';
+                        valueEl.style.color = 'var(--text-3)';
+                    }
+
+                    try {
+                        const testRes = await fetch('api/test-extraction', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                camera_name: name,
+                                roi: roi.roi,
+                                preprocessing: document.getElementById('live-preprocessing').value
+                            })
+                        });
+
+                        const data = await testRes.json();
+
+                        if (valueEl) {
+                            if (data.success) {
+                                valueEl.textContent = data.value !== null ? data.value : '--';
+                                valueEl.style.color = data.confidence > 50 ? 'var(--success)' : 'var(--warning)';
+
+                                if (data.confidence > bestConfidence && data.value !== null) {
+                                    bestConfidence = data.confidence;
+                                    bestResult = { value: data.value, roi: roi.roi, id: roi.id };
+                                }
+                            } else {
+                                valueEl.textContent = 'Error';
+                                valueEl.style.color = 'var(--error)';
+                            }
+                        }
+                    } catch (e) {
+                        if (valueEl) {
+                            valueEl.textContent = 'Error';
+                            valueEl.style.color = 'var(--error)';
+                        }
+                    }
+                }
+
+                if (bestResult) {
+                    toast(`Best: ${bestResult.value} (${bestConfidence.toFixed(0)}% confidence)`, 'success');
+                    // Highlight best ROI
+                    document.querySelectorAll('.saved-roi-item').forEach(el => el.style.borderColor = 'var(--border)');
+                    const bestEl = document.querySelector(`[data-roi-id="${bestResult.id}"]`);
+                    if (bestEl) bestEl.style.borderColor = 'var(--success)';
+                } else {
+                    toast('No valid results from any ROI', 'warning');
+                }
+
+            } catch (e) {
+                toast('Test failed: ' + e.message, 'error');
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Test All';
+        }
+
+        async function testSavedROI(roi, roiId) {
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) {
+                toast('Please select a camera first', 'error');
+                return;
+            }
+
+            // Show loading in the value display
+            const valueEl = document.getElementById(`roi-value-${roiId}`);
+            if (valueEl) {
+                valueEl.textContent = '...';
+                valueEl.style.color = 'var(--text-3)';
+            }
+
+            try {
+                const res = await fetch('api/test-extraction', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        camera_name: name,
+                        roi: roi,
+                        preprocessing: document.getElementById('live-preprocessing').value
+                    })
+                });
+
+                const data = await res.json();
+
+                if (data.success && valueEl) {
+                    valueEl.textContent = data.value !== null ? data.value : '--';
+                    valueEl.style.color = data.confidence > 50 ? 'var(--success)' : 'var(--warning)';
+                    toast(`Value: ${data.value} (${data.confidence.toFixed(0)}%)`, 'success');
+                } else if (valueEl) {
+                    valueEl.textContent = 'Error';
+                    valueEl.style.color = 'var(--error)';
+                }
+            } catch (e) {
+                if (valueEl) {
+                    valueEl.textContent = 'Error';
+                    valueEl.style.color = 'var(--error)';
+                }
+                toast('Test failed', 'error');
+            }
         }
 
         // Templates
@@ -4149,7 +4563,11 @@ WEB_UI = '''
             'openai': 'Default: gpt-4o (supports vision)',
             'anthropic': 'Default: claude-sonnet-4-20250514',
             'google': 'Default: gemini-1.5-flash',
-            'ollama': 'Default: llava (requires vision model)'
+            'ollama': 'Default: llava (requires vision model)',
+            'custom': 'Enter model name from your provider',
+            'google-vision': 'Uses TEXT_DETECTION (no model needed)',
+            'azure-ocr': 'Uses Read API v3.2 (no model needed)',
+            'aws-textract': 'Uses detect-document-text (no model needed)'
         };
 
         async function loadAIConfig() {
@@ -4160,6 +4578,7 @@ WEB_UI = '''
                 document.getElementById('ai-provider').value = config.provider;
                 document.getElementById('ai-url').value = config.api_url || '';
                 document.getElementById('ai-model').value = config.model || '';
+                document.getElementById('ai-region').value = config.region || '';
                 document.getElementById('ai-enable-ocr').checked = config.enabled_for_ocr;
                 document.getElementById('ai-enable-description').checked = config.enabled_for_description;
 
@@ -4177,9 +4596,17 @@ WEB_UI = '''
             const provider = document.getElementById('ai-provider').value;
             const configFields = document.getElementById('ai-config-fields');
             const urlGroup = document.getElementById('ai-url-group');
+            const urlLabel = document.getElementById('ai-url-label');
+            const urlHint = document.getElementById('ai-url-hint');
             const apiKeyGroup = document.getElementById('ai-apikey-group');
+            const regionGroup = document.getElementById('ai-region-group');
             const modelHint = document.getElementById('ai-model-hint');
+            const modelGroup = document.getElementById('ai-model').parentElement;
+            const descriptionCheckbox = document.getElementById('ai-enable-description').parentElement;
             const testBtn = document.getElementById('test-ai-btn');
+
+            const cloudOcrProviders = ['google-vision', 'azure-ocr', 'aws-textract'];
+            const isCloudOcr = cloudOcrProviders.includes(provider);
 
             if (provider === 'none') {
                 configFields.style.display = 'none';
@@ -4188,14 +4615,42 @@ WEB_UI = '''
                 configFields.style.display = 'block';
                 testBtn.style.display = 'inline-flex';
 
-                // Show/hide URL field for Ollama
-                urlGroup.style.display = provider === 'ollama' ? 'block' : 'none';
+                // Show/hide URL field
+                const needsUrl = provider === 'ollama' || provider === 'custom' || provider === 'azure-ocr';
+                urlGroup.style.display = needsUrl ? 'block' : 'none';
 
-                // Hide API key for Ollama (optional)
+                // Update URL hint based on provider
+                if (provider === 'ollama') {
+                    urlLabel.textContent = 'API URL';
+                    urlHint.textContent = 'URL to your Ollama server (e.g., http://localhost:11434)';
+                } else if (provider === 'custom') {
+                    urlLabel.textContent = 'API URL';
+                    urlHint.textContent = 'Base URL of OpenAI-compatible API (e.g., http://localhost:1234/v1)';
+                } else if (provider === 'azure-ocr') {
+                    urlLabel.textContent = 'Endpoint URL';
+                    urlHint.textContent = 'Azure endpoint (e.g., https://westus.api.cognitive.microsoft.com)';
+                }
+
+                // Show/hide region field for AWS
+                regionGroup.style.display = provider === 'aws-textract' ? 'block' : 'none';
+
+                // Show API key for all except Ollama
                 apiKeyGroup.style.display = provider === 'ollama' ? 'none' : 'block';
 
+                // Update API key hint for AWS
+                const apiKeyHint = apiKeyGroup.querySelector('p');
+                if (provider === 'aws-textract') {
+                    apiKeyHint.textContent = 'Format: ACCESS_KEY_ID:SECRET_ACCESS_KEY';
+                } else {
+                    apiKeyHint.textContent = 'Your API key is stored locally and never shared.';
+                }
+
+                // Hide model field and description checkbox for cloud OCR services
+                modelGroup.style.display = isCloudOcr ? 'none' : 'block';
+                descriptionCheckbox.style.display = isCloudOcr ? 'none' : 'flex';
+
                 // Update model hint
-                modelHint.textContent = AI_MODEL_HINTS[provider] || '';
+                modelHint.textContent = AI_MODEL_HINTS[provider] || 'Enter your model name';
             }
         }
 
@@ -4204,6 +4659,7 @@ WEB_UI = '''
             const apiKey = document.getElementById('ai-apikey').value;
             const apiUrl = document.getElementById('ai-url').value;
             const model = document.getElementById('ai-model').value;
+            const region = document.getElementById('ai-region').value;
             const enableOcr = document.getElementById('ai-enable-ocr').checked;
             const enableDescription = document.getElementById('ai-enable-description').checked;
 
@@ -4216,6 +4672,7 @@ WEB_UI = '''
                         api_key: apiKey,
                         api_url: apiUrl,
                         model,
+                        region,
                         enabled_for_ocr: enableOcr,
                         enabled_for_description: enableDescription
                     })
@@ -4716,6 +5173,7 @@ def save_ai_config():
         api_key=data.get('api_key', ''),
         api_url=data.get('api_url', ''),
         model=data.get('model', ''),
+        region=data.get('region', ''),
         enabled_for_ocr=data.get('enabled_for_ocr', False),
         enabled_for_description=data.get('enabled_for_description', False)
     )
