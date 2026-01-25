@@ -476,6 +476,141 @@ class PortScanner:
         return cameras
 
 
+class PTZController:
+    """ONVIF PTZ control for cameras."""
+
+    # PTZ SOAP templates
+    PTZ_CONTINUOUS_MOVE = '''<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+    <s:Body>
+        <ContinuousMove xmlns="http://www.onvif.org/ver20/ptz/wsdl">
+            <ProfileToken>{profile}</ProfileToken>
+            <Velocity>
+                <PanTilt xmlns="http://www.onvif.org/ver10/schema" x="{pan}" y="{tilt}"/>
+            </Velocity>
+        </ContinuousMove>
+    </s:Body>
+</s:Envelope>'''
+
+    PTZ_STOP = '''<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+    <s:Body>
+        <Stop xmlns="http://www.onvif.org/ver20/ptz/wsdl">
+            <ProfileToken>{profile}</ProfileToken>
+            <PanTilt>true</PanTilt>
+            <Zoom>true</Zoom>
+        </Stop>
+    </s:Body>
+</s:Envelope>'''
+
+    PTZ_GOTO_HOME = '''<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+    <s:Body>
+        <GotoHomePosition xmlns="http://www.onvif.org/ver20/ptz/wsdl">
+            <ProfileToken>{profile}</ProfileToken>
+        </GotoHomePosition>
+    </s:Body>
+</s:Envelope>'''
+
+    @classmethod
+    def move(cls, camera_config: 'CameraConfig', direction: str, speed: float = 0.5, duration: float = 0.3) -> dict:
+        """Send PTZ command to camera."""
+        try:
+            # Parse stream URL to get camera IP and credentials
+            parsed = urlparse(camera_config.stream_url)
+            host = parsed.hostname
+            username = camera_config.username or parsed.username or ''
+            password = camera_config.password or parsed.password or ''
+
+            if not host:
+                return {'error': 'Could not determine camera IP from stream URL'}
+
+            # ONVIF PTZ service URL (typically port 80)
+            ptz_url = f"http://{host}/onvif/PTZ"
+
+            # Determine pan/tilt values based on direction
+            pan = 0.0
+            tilt = 0.0
+            if direction == 'left':
+                pan = -speed
+            elif direction == 'right':
+                pan = speed
+            elif direction == 'up':
+                tilt = speed
+            elif direction == 'down':
+                tilt = -speed
+            elif direction == 'home':
+                return cls._goto_home(ptz_url, username, password)
+
+            # Send continuous move command
+            move_result = cls._send_ptz_command(
+                ptz_url, username, password,
+                cls.PTZ_CONTINUOUS_MOVE.format(profile='profile_1', pan=pan, tilt=tilt)
+            )
+
+            if move_result.get('error'):
+                return move_result
+
+            # Wait for movement
+            time.sleep(duration)
+
+            # Stop movement
+            cls._send_ptz_command(
+                ptz_url, username, password,
+                cls.PTZ_STOP.format(profile='profile_1')
+            )
+
+            return {'success': True, 'direction': direction}
+
+        except Exception as e:
+            logger.error(f"PTZ error: {e}")
+            return {'error': str(e)}
+
+    @classmethod
+    def _goto_home(cls, ptz_url: str, username: str, password: str) -> dict:
+        """Go to home position."""
+        return cls._send_ptz_command(
+            ptz_url, username, password,
+            cls.PTZ_GOTO_HOME.format(profile='profile_1')
+        )
+
+    @classmethod
+    def _send_ptz_command(cls, url: str, username: str, password: str, soap_body: str) -> dict:
+        """Send ONVIF PTZ SOAP command."""
+        import urllib.request
+        import urllib.error
+
+        try:
+            headers = {
+                'Content-Type': 'application/soap+xml; charset=utf-8',
+            }
+
+            req = urllib.request.Request(url, data=soap_body.encode('utf-8'), headers=headers, method='POST')
+
+            # Add basic auth if credentials provided
+            if username and password:
+                import base64
+                credentials = base64.b64encode(f"{username}:{password}".encode()).decode()
+                req.add_header('Authorization', f'Basic {credentials}')
+
+            with urllib.request.urlopen(req, timeout=5) as response:
+                response.read()
+                return {'success': True}
+
+        except urllib.error.HTTPError as e:
+            logger.warning(f"PTZ HTTP error: {e.code} - {e.reason}")
+            # Try digest auth fallback or return error
+            if e.code == 401:
+                return {'error': 'Authentication failed. Check camera credentials.'}
+            return {'error': f'HTTP {e.code}: {e.reason}'}
+        except urllib.error.URLError as e:
+            logger.warning(f"PTZ URL error: {e.reason}")
+            return {'error': f'Connection failed: {e.reason}'}
+        except Exception as e:
+            logger.error(f"PTZ command error: {e}")
+            return {'error': str(e)}
+
+
 class CameraProcessor:
     """Process camera streams and extract values with template matching support."""
 
@@ -1362,6 +1497,31 @@ WEB_UI = '''
             color: white;
         }
 
+        .ptz-controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            margin-left: 8px;
+            padding-left: 8px;
+            border-left: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .ptz-row {
+            display: flex;
+            gap: 2px;
+        }
+
+        .ptz-btn {
+            width: 28px;
+            height: 28px;
+            font-size: 14px;
+        }
+
+        .ptz-home {
+            font-size: 16px;
+        }
+
         .zoom-level {
             color: white;
             font-size: 12px;
@@ -1827,8 +1987,15 @@ WEB_UI = '''
                                 <span class="zoom-level" id="zoom-level">100%</span>
                                 <button class="zoom-btn" onclick="zoomIn()" title="Zoom In">+</button>
                                 <button class="zoom-btn" onclick="resetZoom()" title="Reset Zoom">⟲</button>
-                                <button class="zoom-btn" onclick="rotateImage(-90)" title="Rotate Left">↺</button>
-                                <button class="zoom-btn" onclick="rotateImage(90)" title="Rotate Right">↻</button>
+                                <div class="ptz-controls">
+                                    <button class="zoom-btn ptz-btn" onclick="ptzMove('up')" title="Tilt Up">▲</button>
+                                    <div class="ptz-row">
+                                        <button class="zoom-btn ptz-btn" onclick="ptzMove('left')" title="Pan Left">◄</button>
+                                        <button class="zoom-btn ptz-btn ptz-home" onclick="ptzMove('home')" title="Home">⌂</button>
+                                        <button class="zoom-btn ptz-btn" onclick="ptzMove('right')" title="Pan Right">►</button>
+                                    </div>
+                                    <button class="zoom-btn ptz-btn" onclick="ptzMove('down')" title="Tilt Down">▼</button>
+                                </div>
                             </div>
                             <div class="preview-wrapper" id="preview-wrapper">
                                 <img id="preview-image" style="display: none;" />
@@ -1871,6 +2038,7 @@ WEB_UI = '''
                             <div class="card" style="margin: 0;">
                                 <div class="card-title">Extraction Result</div>
                                 <div class="result-display" id="result-display">
+                                    <div id="result-roi-preview" style="display: none; margin-bottom: 12px; border-radius: 6px; overflow: hidden; background: var(--bg);"></div>
                                     <div class="result-value" id="result-value">--</div>
                                     <div class="result-raw" id="result-raw">Draw ROI and click Test Extract</div>
                                     <div class="result-confidence" id="result-confidence"></div>
@@ -2092,7 +2260,6 @@ WEB_UI = '''
         let previewImage = null;
         let imageScale = 1;
         let zoomLevel = 1;
-        let rotationAngle = 0;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
@@ -2102,7 +2269,7 @@ WEB_UI = '''
             setupZoomWheel();
         });
 
-        // Zoom & Rotation Functions
+        // Zoom & PTZ Functions
         function setupZoomWheel() {
             const frame = document.getElementById('preview-frame');
             frame.addEventListener('wheel', (e) => {
@@ -2119,29 +2286,50 @@ WEB_UI = '''
         function zoomIn() {
             if (zoomLevel < 4) {
                 zoomLevel = Math.min(4, zoomLevel + 0.25);
-                applyZoomRotation();
+                applyZoom();
             }
         }
 
         function zoomOut() {
             if (zoomLevel > 0.25) {
                 zoomLevel = Math.max(0.25, zoomLevel - 0.25);
-                applyZoomRotation();
+                applyZoom();
             }
         }
 
         function resetZoom() {
             zoomLevel = 1;
-            rotationAngle = 0;
-            applyZoomRotation();
+            applyZoom();
         }
 
-        function rotateImage(degrees) {
-            rotationAngle = (rotationAngle + degrees) % 360;
-            applyZoomRotation();
+        async function ptzMove(direction) {
+            const select = document.getElementById('preview-camera-select');
+            const cameraName = select.value;
+            if (!cameraName) {
+                showToast('Please select a camera first', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch('api/ptz', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ camera: cameraName, direction: direction })
+                });
+                const result = await res.json();
+                if (result.error) {
+                    showToast(result.error, 'error');
+                } else {
+                    showToast(`PTZ: ${direction}`, 'success');
+                    // Refresh preview after PTZ move
+                    setTimeout(() => refreshPreview(), 500);
+                }
+            } catch (e) {
+                showToast('PTZ command failed: ' + e.message, 'error');
+            }
         }
 
-        function applyZoomRotation() {
+        function applyZoom() {
             const wrapper = document.getElementById('preview-wrapper');
             const img = document.getElementById('preview-image');
             const canvas = document.getElementById('preview-canvas');
@@ -2155,17 +2343,8 @@ WEB_UI = '''
             img.style.width = scaledWidth + 'px';
             img.style.height = scaledHeight + 'px';
 
-            // Apply rotation to wrapper
-            wrapper.style.transform = `rotate(${rotationAngle}deg)`;
-
-            // Adjust wrapper size for rotation
-            if (rotationAngle === 90 || rotationAngle === 270 || rotationAngle === -90 || rotationAngle === -270) {
-                wrapper.style.width = scaledHeight + 'px';
-                wrapper.style.height = scaledWidth + 'px';
-            } else {
-                wrapper.style.width = scaledWidth + 'px';
-                wrapper.style.height = scaledHeight + 'px';
-            }
+            wrapper.style.width = scaledWidth + 'px';
+            wrapper.style.height = scaledHeight + 'px';
 
             // Update canvas
             canvas.width = scaledWidth;
@@ -2757,10 +2936,8 @@ WEB_UI = '''
 
                 img.onload = () => {
                     previewImage = { width: data.width, height: data.height };
-                    // Reset zoom and rotation for new image
+                    // Reset zoom for new image
                     zoomLevel = 1;
-                    rotationAngle = 0;
-                    document.getElementById('preview-wrapper').style.transform = '';
                     setupCanvasSize();
                     drawROI();
                 };
@@ -3042,6 +3219,15 @@ WEB_UI = '''
                 const data = await res.json();
 
                 if (data.success) {
+                    // Show ROI preview if available
+                    const previewEl = document.getElementById('result-roi-preview');
+                    if (data.roi_preview) {
+                        previewEl.innerHTML = `<img src="data:image/png;base64,${data.roi_preview}" style="width: 100%; display: block;">`;
+                        previewEl.style.display = 'block';
+                    } else {
+                        previewEl.style.display = 'none';
+                    }
+
                     document.getElementById('result-value').textContent =
                         data.value !== null ? data.value : '--';
                     document.getElementById('result-raw').textContent =
@@ -3053,6 +3239,7 @@ WEB_UI = '''
                         data.confidence > 50 ? 'var(--success)' :
                         data.confidence > 30 ? 'var(--warning)' : 'var(--error)';
                 } else {
+                    document.getElementById('result-roi-preview').style.display = 'none';
                     document.getElementById('result-value').textContent = 'Error';
                     document.getElementById('result-raw').textContent = data.error || 'Unknown error';
                     document.getElementById('result-confidence').textContent = '';
@@ -3496,6 +3683,26 @@ def test_extraction():
         return jsonify({'success': False, 'error': error})
 
     result = processor.extract_from_frame(frame, roi, preprocessing, template_name)
+
+    # Add cropped ROI preview to result
+    if roi.get('width', 0) > 0 and roi.get('height', 0) > 0:
+        x, y, w, h = roi.get('x', 0), roi.get('y', 0), roi.get('width', 0), roi.get('height', 0)
+        img_h, img_w = frame.shape[:2]
+        x = max(0, min(x, img_w - 1))
+        y = max(0, min(y, img_h - 1))
+        w = min(w, img_w - x)
+        h = min(h, img_h - y)
+
+        roi_crop = frame[y:y+h, x:x+w]
+        if roi_crop.size > 0:
+            # Scale up if too small
+            if roi_crop.shape[0] < 50 or roi_crop.shape[1] < 50:
+                scale = max(100 / roi_crop.shape[0], 100 / roi_crop.shape[1], 2)
+                roi_crop = cv2.resize(roi_crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+
+            _, buffer = cv2.imencode('.png', roi_crop)
+            result['roi_preview'] = base64.b64encode(buffer).decode('utf-8')
+
     return jsonify(result)
 
 
@@ -3604,6 +3811,30 @@ def discover_cameras():
 
     logger.info(f"Total cameras discovered: {len(cameras)}")
     return jsonify(cameras)
+
+
+@app.route('/api/ptz', methods=['POST'])
+def ptz_control():
+    """Control PTZ camera movement."""
+    data = request.json
+    camera_name = data.get('camera')
+    direction = data.get('direction')
+
+    if not camera_name or not direction:
+        return jsonify({'error': 'Camera name and direction required'}), 400
+
+    if direction not in ['up', 'down', 'left', 'right', 'home']:
+        return jsonify({'error': 'Invalid direction. Use: up, down, left, right, home'}), 400
+
+    camera_config = processor.cameras.get(camera_name)
+    if not camera_config:
+        return jsonify({'error': f'Camera not found: {camera_name}'}), 404
+
+    result = PTZController.move(camera_config, direction)
+    if result.get('error'):
+        return jsonify(result), 500
+
+    return jsonify(result)
 
 
 @app.route('/api/reload', methods=['POST'])

@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.2.8] - 2026
+
+### Added
+- PTZ (Pan-Tilt) controls in Live Preview for ONVIF cameras
+- PTZ buttons: Up, Down, Left, Right, Home position
+- ROI preview in Test Extract mode - shows cropped region being analyzed
+
+### Changed
+- Replaced rotate buttons with PTZ controls
+- Simplified zoom interface
+
+## [1.2.7] - 2026
+
+### Added
+- Camera preview thumbnails in discovery results
+- Auto-load previews when cameras are discovered
+- Preview button to manually refresh camera preview
+- Auto-populate Add Camera dialog from discovered cameras
+- /api/test-capture endpoint for URL preview
+
+### Improved
+- Better discovery item layout with preview area
+- Parse discovered URL to populate all builder fields
+
 ## [1.2.6] - 2026
 
 ### Added
