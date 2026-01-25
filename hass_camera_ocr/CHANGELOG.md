@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.2.15] - 2026
+
+### Added
+- Camera icon thumbnails in Network Discovery results
+- Direct ONVIF device probing for cameras that don't respond to WS-Discovery
+- ONVIF port information shown in discovery results
+
+### Improved
+- Network Discovery reliability with multiple discovery methods
+- Better camera placeholder display when credentials are required
+- Password masking in camera URLs on the Cameras page
+
+### Fixed
+- ONVIF WS-Discovery now sends multiple probes for better reliability
+- Discovery now binds to local network interface
+
 ## [1.2.14] - 2026
 
 ### Added

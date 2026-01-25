@@ -293,6 +293,7 @@ class ONVIFDiscovery:
 
     MULTICAST_IP = "239.255.255.250"
     MULTICAST_PORT = 3702
+    ONVIF_PORTS = [80, 8080, 8000, 8899, 2020, 5000]  # Common ONVIF ports
 
     WS_DISCOVERY_PROBE = '''<?xml version="1.0" encoding="UTF-8"?>
 <e:Envelope xmlns:e="http://www.w3.org/2003/05/soap-envelope"
@@ -311,20 +312,43 @@ class ONVIFDiscovery:
     </e:Body>
 </e:Envelope>'''
 
+    # ONVIF GetDeviceInformation for direct probe
+    DEVICE_INFO_REQUEST = '''<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+    <s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+        <GetDeviceInformation xmlns="http://www.onvif.org/ver10/device/wsdl"/>
+    </s:Body>
+</s:Envelope>'''
+
     @classmethod
     def discover(cls, timeout: float = 5.0) -> list:
-        """Discover ONVIF cameras on the network."""
+        """Discover ONVIF cameras on the network using WS-Discovery."""
         cameras = []
 
         try:
+            # Get local IP to determine network
+            local_ip = cls._get_local_ip()
+            logger.info(f"Local IP: {local_ip}")
+
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-            sock.settimeout(timeout)
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 4)
+            sock.settimeout(1.0)  # Short timeout for each recv
 
-            # Send probe
+            # Bind to local IP if available
+            if local_ip:
+                try:
+                    sock.bind((local_ip, 0))
+                except:
+                    sock.bind(('', 0))
+            else:
+                sock.bind(('', 0))
+
+            # Send probe multiple times for better reliability
             probe = cls.WS_DISCOVERY_PROBE.format(uuid=str(uuid.uuid4()))
-            sock.sendto(probe.encode(), (cls.MULTICAST_IP, cls.MULTICAST_PORT))
+            for _ in range(3):
+                sock.sendto(probe.encode(), (cls.MULTICAST_IP, cls.MULTICAST_PORT))
+                time.sleep(0.1)
 
             # Collect responses
             end_time = time.time() + timeout
@@ -341,12 +365,13 @@ class ONVIFDiscovery:
 
                     # Parse response
                     response = data.decode('utf-8', errors='ignore')
+                    logger.debug(f"WS-Discovery response from {ip}")
                     camera = cls._parse_response(response, ip)
                     if camera:
                         cameras.append(camera)
 
                 except socket.timeout:
-                    break
+                    continue
                 except Exception as e:
                     logger.debug(f"Error receiving discovery response: {e}")
                     continue
@@ -354,9 +379,104 @@ class ONVIFDiscovery:
             sock.close()
 
         except Exception as e:
-            logger.error(f"Discovery error: {e}")
+            logger.error(f"WS-Discovery error: {e}")
 
+        logger.info(f"WS-Discovery found {len(cameras)} cameras")
         return cameras
+
+    @classmethod
+    def probe_direct(cls, ips_to_probe: list, timeout: float = 2.0) -> list:
+        """Directly probe IPs for ONVIF devices by trying GetDeviceInformation."""
+        cameras = []
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def probe_ip(ip):
+            for port in cls.ONVIF_PORTS:
+                try:
+                    url = f"http://{ip}:{port}/onvif/device_service"
+                    response = requests.post(
+                        url,
+                        data=cls.DEVICE_INFO_REQUEST,
+                        headers={'Content-Type': 'application/soap+xml; charset=utf-8'},
+                        timeout=timeout,
+                        auth=None
+                    )
+                    if response.status_code in [200, 401, 403]:
+                        # 401/403 means ONVIF is there but needs auth
+                        logger.info(f"ONVIF device found at {ip}:{port}")
+                        return cls._parse_device_info(response.text, ip, port)
+                except requests.exceptions.RequestException:
+                    continue
+                except Exception as e:
+                    logger.debug(f"Probe error {ip}:{port}: {e}")
+                    continue
+            return None
+
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            futures = {executor.submit(probe_ip, ip): ip for ip in ips_to_probe}
+            for future in as_completed(futures, timeout=30):
+                try:
+                    result = future.result()
+                    if result:
+                        cameras.append(result)
+                except:
+                    pass
+
+        logger.info(f"Direct probe found {len(cameras)} ONVIF cameras")
+        return cameras
+
+    @classmethod
+    def _parse_device_info(cls, response: str, ip: str, port: int) -> Optional[dict]:
+        """Parse ONVIF GetDeviceInformation response."""
+        manufacturer = ""
+        model = ""
+
+        # Try to extract manufacturer
+        mfr_match = re.search(r'<[^>]*Manufacturer[^>]*>([^<]+)<', response)
+        if mfr_match:
+            manufacturer = mfr_match.group(1).strip()
+
+        # Try to extract model
+        model_match = re.search(r'<[^>]*Model[^>]*>([^<]+)<', response)
+        if model_match:
+            model = model_match.group(1).strip()
+
+        # Detect by common patterns if not found
+        if not manufacturer:
+            if "Hikvision" in response or "hikvision" in response:
+                manufacturer = "Hikvision"
+            elif "Dahua" in response or "dahua" in response:
+                manufacturer = "Dahua"
+            elif "Tapo" in response or "TP-Link" in response:
+                manufacturer = "TP-Link Tapo"
+            elif "Reolink" in response or "reolink" in response:
+                manufacturer = "Reolink"
+            elif "Amcrest" in response:
+                manufacturer = "Amcrest"
+
+        rtsp_url = cls._generate_rtsp_url(ip, manufacturer)
+
+        return {
+            'ip': ip,
+            'port': 554,
+            'onvif_port': port,
+            'manufacturer': manufacturer,
+            'model': model,
+            'name': f"{manufacturer or 'Camera'} @ {ip}" + (f" ({model})" if model else ""),
+            'stream_url': rtsp_url
+        }
+
+    @classmethod
+    def _get_local_ip(cls) -> Optional[str]:
+        """Get the local IP address."""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            return local_ip
+        except:
+            return None
 
     @classmethod
     def _parse_response(cls, response: str, ip: str) -> Optional[dict]:
@@ -2513,12 +2633,32 @@ WEB_UI = '''
             color: var(--text-3);
             font-size: 12px;
             text-align: center;
+            height: auto;
+            padding: 20px;
+        }
+        .discovery-item-preview .preview-placeholder svg {
+            width: 48px;
+            height: 48px;
+            margin-bottom: 8px;
+            opacity: 0.4;
         }
         .discovery-item-preview .preview-error {
-            color: var(--error);
+            color: var(--text-3);
             font-size: 11px;
             text-align: center;
-            padding: 8px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        .discovery-item-preview .preview-error svg {
+            width: 40px;
+            height: 40px;
+            opacity: 0.3;
+        }
+        .discovery-item-preview .preview-error small {
+            opacity: 0.7;
         }
         .discovery-item-actions {
             display: flex;
@@ -3669,6 +3809,21 @@ WEB_UI = '''
             }).join('');
         }
 
+        function maskPasswordInUrl(url) {
+            // Mask password in URL like rtsp://user:password@host -> rtsp://user:****@host
+            try {
+                const urlPattern = /^((?:rtsp|http|https):\/\/)([^:]+):([^@]+)@(.+)$/i;
+                const match = url.match(urlPattern);
+                if (match) {
+                    return `${match[1]}${match[2]}:****@${match[4]}`;
+                }
+                // Also handle URLs with password in query params
+                return url.replace(/([?&]password=)[^&]+/gi, '$1****');
+            } catch (e) {
+                return url;
+            }
+        }
+
         function renderCameras() {
             const list = document.getElementById('cameras-list');
             const entries = Object.entries(cameras);
@@ -3699,7 +3854,7 @@ WEB_UI = '''
                     </div>
                     <div class="camera-item-info">
                         <div class="camera-item-name">${name}</div>
-                        <div class="camera-item-url">${cam.stream_url}</div>
+                        <div class="camera-item-url">${maskPasswordInUrl(cam.stream_url)}</div>
                         <div style="font-size: 12px; color: var(--text-3); margin-top: 4px;">
                             ${cam.value_name}${cam.unit ? ' (' + cam.unit + ')' : ''} •
                             ROI: ${cam.roi_width > 0 ? `${cam.roi_width}x${cam.roi_height}` : 'Not set'}
@@ -4781,21 +4936,29 @@ WEB_UI = '''
                                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                             </svg>
                             <h3>No cameras found</h3>
-                            <p>Make sure your cameras support ONVIF</p>
+                            <p>No cameras were discovered on your network.<br>Check that cameras are powered on and connected.</p>
                         </div>
                     `;
                 } else {
-                    list.innerHTML = discovered.map((cam, idx) => `
+                    list.innerHTML = discovered.map((cam, idx) => {
+                        const safeName = (cam.name || cam.ip).replace(/'/g, "\\'");
+                        const safeMfr = (cam.manufacturer || '').replace(/'/g, "\\'");
+                        const onvifInfo = cam.onvif_port ? ` • ONVIF:${cam.onvif_port}` : '';
+                        return `
                         <div class="discovery-item" id="discovery-${idx}">
                             <div class="discovery-item-header">
                                 <div class="discovery-item-info">
                                     <h4>${cam.name || cam.ip}</h4>
-                                    <p>${cam.manufacturer ? cam.manufacturer + ' • ' : ''}${cam.ip}:${cam.port}</p>
+                                    <p>${cam.manufacturer ? cam.manufacturer + ' • ' : ''}${cam.ip}:${cam.port}${onvifInfo}</p>
                                 </div>
                             </div>
                             <div class="discovery-item-preview" id="discovery-preview-${idx}">
                                 <div class="preview-placeholder">
-                                    <div class="loading"></div>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                        <circle cx="12" cy="13" r="4"></circle>
+                                    </svg>
+                                    <div class="loading" style="margin-top: 8px;"></div>
                                     <p style="margin-top: 8px;">Loading preview...</p>
                                 </div>
                             </div>
@@ -4807,7 +4970,7 @@ WEB_UI = '''
                                     </svg>
                                     Preview
                                 </button>
-                                <button class="btn btn-primary btn-sm" onclick="addDiscoveredCamera('${cam.ip}', ${cam.port}, '${cam.stream_url}', '${cam.manufacturer || ''}', '${cam.name || ''}')">
+                                <button class="btn btn-primary btn-sm" onclick="addDiscoveredCamera('${cam.ip}', ${cam.port}, '${cam.stream_url}', '${safeMfr}', '${safeName}')">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
                                         <line x1="12" y1="5" x2="12" y2="19"></line>
                                         <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -4815,8 +4978,8 @@ WEB_UI = '''
                                     Add
                                 </button>
                             </div>
-                        </div>
-                    `).join('');
+                        </div>`;
+                    }).join('');
 
                     // Auto-load previews for discovered cameras
                     discovered.forEach((cam, idx) => {
@@ -4857,9 +5020,23 @@ WEB_UI = '''
                         return;
                     }
                 }
-                previewEl.innerHTML = '<div class="preview-error">Preview unavailable<br><small>Add camera and configure credentials to view</small></div>';
+                previewEl.innerHTML = `<div class="preview-error">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                        <circle cx="12" cy="13" r="4"></circle>
+                    </svg>
+                    <span>Credentials required</span>
+                    <small>Add camera and configure username/password</small>
+                </div>`;
             } catch (e) {
-                previewEl.innerHTML = '<div class="preview-error">Preview unavailable<br><small>Add camera and configure credentials to view</small></div>';
+                previewEl.innerHTML = `<div class="preview-error">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                        <circle cx="12" cy="13" r="4"></circle>
+                    </svg>
+                    <span>Credentials required</span>
+                    <small>Add camera and configure username/password</small>
+                </div>`;
             }
         }
 
@@ -5504,24 +5681,44 @@ def get_saved_roi_image(camera_name, roi_id):
 
 @app.route('/api/discover', methods=['POST'])
 def discover_cameras():
-    """Discover cameras on the network using ONVIF and port scanning."""
+    """Discover cameras on the network using ONVIF, direct probing, and port scanning."""
     cameras = []
+    seen_ips = set()
 
-    # Try ONVIF discovery first
-    logger.info("Starting ONVIF discovery...")
+    # Try ONVIF WS-Discovery first
+    logger.info("Starting ONVIF WS-Discovery...")
     onvif_cameras = ONVIFDiscovery.discover(timeout=5.0)
-    cameras.extend(onvif_cameras)
-    logger.info(f"ONVIF discovery found {len(onvif_cameras)} cameras")
+    for cam in onvif_cameras:
+        if cam['ip'] not in seen_ips:
+            cameras.append(cam)
+            seen_ips.add(cam['ip'])
+    logger.info(f"WS-Discovery found {len(onvif_cameras)} cameras")
 
-    # Also try port scanning for cameras that don't support ONVIF
+    # Also try port scanning to find potential cameras
     logger.info("Starting port scan discovery...")
     port_cameras = PortScanner.scan_network(timeout=0.3)
 
-    # Add port-scanned cameras that weren't found by ONVIF
-    seen_ips = {cam['ip'] for cam in cameras}
+    # Collect IPs that have camera-like ports open but weren't found by WS-Discovery
+    ips_to_probe = []
     for cam in port_cameras:
         if cam['ip'] not in seen_ips:
+            ips_to_probe.append(cam['ip'])
+            # Add port-scanned cameras to the list
             cameras.append(cam)
+            seen_ips.add(cam['ip'])
+
+    # Try direct ONVIF probe on IPs found by port scanning
+    if ips_to_probe:
+        logger.info(f"Probing {len(ips_to_probe)} IPs for ONVIF devices...")
+        direct_cameras = ONVIFDiscovery.probe_direct(ips_to_probe, timeout=2.0)
+
+        # Update existing entries with ONVIF info if found
+        for direct_cam in direct_cameras:
+            # Find and update the existing entry
+            for i, cam in enumerate(cameras):
+                if cam['ip'] == direct_cam['ip']:
+                    cameras[i] = direct_cam  # Replace with more detailed info
+                    break
 
     logger.info(f"Total cameras discovered: {len(cameras)}")
     return jsonify(cameras)
