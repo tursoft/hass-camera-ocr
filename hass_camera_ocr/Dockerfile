@@ -23,11 +23,15 @@ RUN apk add --no-cache \
     opencv-python-headless \
     numpy \
     requests \
-    # ML dependencies for HuggingFace models
-    torch --index-url https://download.pytorch.org/whl/cpu \
-    transformers \
     Pillow \
-    scikit-learn
+    scikit-learn \
+    # Install PyTorch CPU-only version (smaller, no CUDA)
+    && pip3 install --no-cache-dir --break-system-packages \
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch \
+    # Install transformers after torch
+    && pip3 install --no-cache-dir --break-system-packages \
+    transformers
 
 # Copy application files
 COPY rootfs /
