@@ -460,6 +460,39 @@
             background: var(--primary);
         }
 
+        .mode-toggle {
+            display: flex;
+            gap: 4px;
+            background: var(--bg);
+            padding: 4px;
+            border-radius: 6px;
+        }
+
+        .mode-btn {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 6px 12px;
+            border: none;
+            background: transparent;
+            color: var(--text-3);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .mode-btn:hover {
+            background: var(--border);
+            color: var(--text);
+        }
+
+        .mode-btn.active {
+            background: var(--primary);
+            color: #fff;
+        }
+
         .zoom-controls {
             position: absolute;
             top: 10px;
@@ -1150,7 +1183,24 @@
             <!-- Live Preview Page -->
             <div id="page-live" class="page">
                 <div class="card">
-                    <div class="card-title">Live Preview & ROI Selection</div>
+                    <div class="card-title" style="justify-content: space-between;">
+                        <span>Live Preview & ROI Selection</span>
+                        <div class="mode-toggle">
+                            <button class="mode-btn active" id="mode-edit-btn" onclick="setPreviewMode('edit')">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                </svg>
+                                EDIT
+                            </button>
+                            <button class="mode-btn" id="mode-test-btn" onclick="setPreviewMode('test')">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                </svg>
+                                TEST
+                            </button>
+                        </div>
+                    </div>
                     <div class="form-row" style="margin-bottom: 16px;">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Select Camera</label>
@@ -1656,6 +1706,14 @@
         let zoomLevel = 1;
         let liveUpdateInterval = null;
         let isLivePaused = false;
+        let previewMode = 'edit';  // 'edit' or 'test'
+
+        function setPreviewMode(mode) {
+            previewMode = mode;
+            document.getElementById('mode-edit-btn').classList.toggle('active', mode === 'edit');
+            document.getElementById('mode-test-btn').classList.toggle('active', mode === 'test');
+            drawROI();  // Redraw to show/hide ROI based on mode
+        }
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
@@ -1973,7 +2031,7 @@
 
                 // Thumbnail
                 const thumbnailHtml = entry.roi_image_id
-                    ? `<img class="history-thumbnail" src="api/history-image/${encodeURIComponent(selectedHistoryCamera)}/${entry.roi_image_id}" onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')" onerror="this.outerHTML='<div class=\\'history-thumbnail-placeholder\\'>N/A</div>'">`
+                    ? `<img class="history-thumbnail" src="api/history-image/${encodeURIComponent(selectedHistoryCamera)}/${entry.roi_image_id}" onerror="this.outerHTML='<div class=\\'history-thumbnail-placeholder\\'>N/A</div>'">`
                     : '<div class="history-thumbnail-placeholder">N/A</div>';
 
                 return `
@@ -2975,7 +3033,8 @@
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            if (currentROI.width > 0 && currentROI.height > 0) {
+            // Only draw ROI rectangle in TEST mode
+            if (previewMode === 'test' && currentROI.width > 0 && currentROI.height > 0) {
                 const x = currentROI.x * imageScale;
                 const y = currentROI.y * imageScale;
                 const w = currentROI.width * imageScale;
