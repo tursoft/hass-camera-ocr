@@ -2194,10 +2194,65 @@
                             </div>
                             ` : ''}
                         </div>
+                        ${entry.roi_image_id && entry.roi_width > 0 ? `
+                        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                            <button class="btn btn-success" onclick="saveHistoryAsROI('${selectedHistoryCamera}', ${JSON.stringify(entry).replace(/"/g, '&quot;')})">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="margin-right: 4px;">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                Add to Saved ROIs
+                            </button>
+                        </div>
+                        ` : ''}
                     </div>
                 </div>
             `;
             document.body.appendChild(dialog);
+        }
+
+        async function saveHistoryAsROI(cameraName, entry) {
+            try {
+                // Fetch the history image as base64
+                const imgRes = await fetch(`api/history-image/${encodeURIComponent(cameraName)}/${entry.roi_image_id}`);
+                if (!imgRes.ok) {
+                    toast('Failed to load history image', 'error');
+                    return;
+                }
+                const blob = await imgRes.blob();
+                const reader = new FileReader();
+                reader.onloadend = async () => {
+                    const base64 = reader.result.split(',')[1];
+
+                    // Save as new ROI
+                    const res = await fetch(`api/saved-rois/${encodeURIComponent(cameraName)}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            roi: {
+                                x: entry.roi_x || 0,
+                                y: entry.roi_y || 0,
+                                width: entry.roi_width || 0,
+                                height: entry.roi_height || 0
+                            },
+                            screenshot: base64,
+                            extracted_value: entry.value
+                        })
+                    });
+
+                    if (res.ok) {
+                        toast('Added to Saved ROIs', 'success');
+                        document.querySelectorAll('.history-detail-dialog').forEach(d => d.remove());
+                    } else {
+                        const err = await res.json();
+                        toast(err.error || 'Failed to save ROI', 'error');
+                    }
+                };
+                reader.readAsDataURL(blob);
+            } catch (e) {
+                console.error('Failed to save history as ROI:', e);
+                toast('Failed to save ROI', 'error');
+            }
         }
 
         function selectHistoryCamera(name) {

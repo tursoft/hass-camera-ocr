@@ -2192,7 +2192,11 @@ class CameraProcessor:
             'error': result.error,
             'video_description': result.video_description,
             'roi_image_id': roi_image_id,
-            'ocr_provider': ai_provider or 'tesseract'
+            'ocr_provider': ai_provider or 'tesseract',
+            'roi_x': result.roi_x,
+            'roi_y': result.roi_y,
+            'roi_width': result.roi_width,
+            'roi_height': result.roi_height
         })
 
         # Keep only last MAX_HISTORY entries and clean up old images
