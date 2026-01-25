@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Camera OCR Add-on Server with Full Admin Interface and Template Matching."""
 
-VERSION = "1.2.28"
+VERSION = "1.2.29"
 
 import os
 import json

@@ -4727,9 +4727,10 @@
 
             const source = document.getElementById('ai-test-source').value;
             let imageBase64 = aiTestImageBase64;
+            let testCamera = null;
 
             if (source === 'camera') {
-                const testCamera = document.getElementById('ai-test-camera').value;
+                testCamera = document.getElementById('ai-test-camera').value;
                 if (!testCamera) {
                     toast('Please select a camera', 'error');
                     return;
@@ -4749,6 +4750,28 @@
             resultsCard.style.display = 'block';
             resultsContent.innerHTML = '<div class="loading"></div><p style="text-align: center; margin-top: 12px;">Testing all providers...</p>';
 
+            // Capture image from camera if needed
+            let testImageBase64 = imageBase64;
+            if (source === 'camera' && testCamera) {
+                try {
+                    const captureRes = await fetch(`api/capture/${encodeURIComponent(testCamera)}`);
+                    const captureData = await captureRes.json();
+                    if (captureData.image) {
+                        testImageBase64 = captureData.image;
+                    } else {
+                        toast('Failed to capture from camera', 'error');
+                        testBtn.disabled = false;
+                        testBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Test All Providers`;
+                        return;
+                    }
+                } catch (e) {
+                    toast('Failed to capture from camera: ' + e.message, 'error');
+                    testBtn.disabled = false;
+                    testBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Test All Providers`;
+                    return;
+                }
+            }
+
             // Test each provider
             const results = [];
             for (const provider of currentProviders) {
@@ -4759,7 +4782,7 @@
                         const res = await fetch('api/test-extraction', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ camera_name: cameraName, image: imageBase64 })
+                            body: JSON.stringify({ camera_name: testCamera || cameraName, image: testImageBase64 })
                         });
                         const data = await res.json();
                         result = { provider, value: data.value, confidence: data.confidence, error: data.error };
@@ -4767,7 +4790,7 @@
                         const res = await fetch('api/ml/test', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ image: imageBase64, camera_name: cameraName })
+                            body: JSON.stringify({ image: testImageBase64, camera_name: testCamera || cameraName })
                         });
                         const data = await res.json();
                         result = { provider, value: data.value, confidence: data.confidence, error: data.error };
@@ -4778,7 +4801,8 @@
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                                image: imageBase64,
+                                image: testImageBase64,
+                                camera: testCamera || cameraName,
                                 provider: provider,
                                 api_key: config.api_key,
                                 api_url: config.api_url,
@@ -4800,8 +4824,24 @@
             const bestResult = results.reduce((best, r) =>
                 r.value && r.confidence > (best?.confidence || 0) ? r : best, null);
 
-            // Render results
-            let html = '<div class="provider-results-list">';
+            // Render results with input image thumbnail
+            let html = '';
+            if (testImageBase64) {
+                html += `
+                    <div style="display: flex; gap: 16px; margin-bottom: 16px; align-items: flex-start;">
+                        <div style="flex-shrink: 0;">
+                            <div style="font-size: 12px; color: var(--text-2); margin-bottom: 4px;">Input Image</div>
+                            <img src="data:image/jpeg;base64,${testImageBase64}" style="max-width: 150px; max-height: 100px; border-radius: 4px; border: 1px solid var(--border);">
+                        </div>
+                        <div style="flex: 1;">
+                            <div style="font-size: 12px; color: var(--text-2); margin-bottom: 4px;">Best Result</div>
+                            <div style="font-size: 24px; font-weight: 600; color: var(--primary);">${bestResult?.value || '--'}</div>
+                            <div style="font-size: 12px; color: var(--text-2);">${bestResult ? PROVIDER_INFO[bestResult.provider]?.name || bestResult.provider : 'No valid result'}</div>
+                        </div>
+                    </div>
+                `;
+            }
+            html += '<div class="provider-results-list">';
             for (const r of results) {
                 const info = PROVIDER_INFO[r.provider] || { name: r.provider };
                 const isSelected = bestResult && r.provider === bestResult.provider;

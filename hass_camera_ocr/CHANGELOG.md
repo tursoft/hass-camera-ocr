@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.29] - 2026
+
+### Fixed
+- Fixed "Camera name or image required" error when testing AI providers with camera source
+- Test All Providers now correctly passes camera name to all provider tests when using camera source
+
 ## [1.2.28] - 2026
 
 ### Fixed
