@@ -524,29 +524,53 @@ class CameraProcessor:
 
         return url
 
+    def _open_video_capture(self, url: str) -> cv2.VideoCapture:
+        """Open video capture with proper backend and options for RTSP."""
+        # Set FFmpeg options for RTSP streams
+        if url.lower().startswith('rtsp://'):
+            # Use FFmpeg backend with TCP transport (more reliable than UDP)
+            os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'rtsp_transport;tcp|analyzeduration;5000000|probesize;5000000'
+            cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+        else:
+            cap = cv2.VideoCapture(url)
+
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        # Set timeout (in milliseconds)
+        cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)
+        cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 10000)
+
+        return cap
+
     def capture_frame(self, camera: CameraConfig) -> Tuple[Optional[np.ndarray], Optional[str]]:
         """Capture a frame from camera."""
         try:
             url = self.get_authenticated_url(camera)
-            cap = cv2.VideoCapture(url)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            logger.info(f"Capturing frame from: {url[:50]}...")
+
+            cap = self._open_video_capture(url)
 
             if not cap.isOpened():
-                return None, "Failed to open stream"
+                logger.error(f"Failed to open stream: {url[:50]}...")
+                return None, "Failed to open stream. Check URL, credentials and network connectivity."
 
             # Read a few frames to get latest
             frame = None
-            for _ in range(3):
+            for _ in range(5):
                 ret, frame = cap.read()
+                if ret and frame is not None:
+                    break
 
             cap.release()
 
             if not ret or frame is None:
-                return None, "Failed to read frame"
+                logger.error(f"Failed to read frame from: {url[:50]}...")
+                return None, "Stream opened but failed to read frame"
 
+            logger.info(f"Successfully captured frame: {frame.shape}")
             return frame, None
 
         except Exception as e:
+            logger.exception(f"Error capturing frame: {e}")
             return None, str(e)
 
     def capture_frame_from_url(self, url: str, username: str = "", password: str = "") -> Tuple[Optional[np.ndarray], Optional[str]]:
@@ -557,24 +581,31 @@ class CameraProcessor:
                 protocol, rest = url.split("://", 1)
                 full_url = f"{protocol}://{username}:{password}@{rest}"
 
-            cap = cv2.VideoCapture(full_url)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            logger.info(f"Capturing frame from URL: {full_url[:50]}...")
+
+            cap = self._open_video_capture(full_url)
 
             if not cap.isOpened():
-                return None, "Failed to open stream"
+                logger.error(f"Failed to open stream: {full_url[:50]}...")
+                return None, "Failed to open stream. Check URL, credentials and network connectivity."
 
             frame = None
-            for _ in range(3):
+            for _ in range(5):
                 ret, frame = cap.read()
+                if ret and frame is not None:
+                    break
 
             cap.release()
 
             if not ret or frame is None:
-                return None, "Failed to read frame"
+                logger.error(f"Failed to read frame from: {full_url[:50]}...")
+                return None, "Stream opened but failed to read frame"
 
+            logger.info(f"Successfully captured frame: {frame.shape}")
             return frame, None
 
         except Exception as e:
+            logger.exception(f"Error capturing frame: {e}")
             return None, str(e)
 
     def preprocess_image(self, image: np.ndarray, method: str) -> np.ndarray:

@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.2] - 2026
+
+### Fixed
+- Fixed RTSP stream capture by adding FFmpeg support
+- Use TCP transport for more reliable RTSP connections
+- Added connection timeouts to prevent hanging
+- Improved error messages for stream connection failures
+- Added logging for stream capture debugging
+
 ## [1.2.1] - 2026
 
 ### Added

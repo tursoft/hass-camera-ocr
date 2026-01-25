@@ -13,6 +13,9 @@ RUN apk add --no-cache \
     libstdc++ \
     libgcc \
     libgomp \
+    # FFmpeg for RTSP stream support
+    ffmpeg \
+    ffmpeg-libs \
     && pip3 install --no-cache-dir --break-system-packages \
     flask \
     flask-cors \
