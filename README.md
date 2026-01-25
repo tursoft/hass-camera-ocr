@@ -5,7 +5,7 @@
 <h1 align="center">Camera OCR for Home Assistant</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.7-blue.svg" alt="Version 1.2.7">
+  <img src="https://img.shields.io/badge/version-1.2.9-blue.svg" alt="Version 1.2.9">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License MIT">
   <img src="https://img.shields.io/github/stars/tursoft/hass-camera-ocr?style=flat&logo=github" alt="GitHub Stars">
   <img src="https://img.shields.io/github/forks/tursoft/hass-camera-ocr?style=flat&logo=github" alt="GitHub Forks">
@@ -30,7 +30,9 @@ Extract numeric values from IP camera video streams using OCR (Optical Character
 - **OCR Value Extraction**: Automatically extract numeric values from camera images
 - **Region of Interest (ROI)**: Define specific areas of the frame to analyze
 - **Template Matching**: Handle camera movement/rotation by using reference templates
+- **PTZ Controls**: Pan, Tilt, and Home position controls for ONVIF cameras
 - **Auto-Discovery**: Discover ONVIF-compatible cameras on your network
+- **AI Integration**: Optional AI-powered OCR enhancement and scene description (OpenAI, Anthropic, Google, Ollama)
 - **Web UI Panel**: Easy-to-use interface for configuration and ROI selection
 - **Home Assistant Integration**: Exposes values as sensor entities for automations and monitoring
 - **Two Installation Methods**: Available as both a Custom Integration and an Add-on
@@ -289,6 +291,60 @@ Each sensor provides these attributes:
 | `roi_x`, `roi_y`, `roi_width`, `roi_height` | Current ROI coordinates |
 | `preprocessing` | Preprocessing method used |
 | `stream_url` | Camera stream URL |
+| `video_description` | AI-generated scene description (if enabled) |
+
+## AI Integration
+
+Camera OCR supports optional AI integration for enhanced OCR accuracy and automatic scene description generation.
+
+### Supported AI Providers
+
+| Provider | Models | Use Case |
+|----------|--------|----------|
+| **OpenAI** | GPT-4o, GPT-4-turbo | Cloud-based, high accuracy |
+| **Anthropic** | Claude Sonnet/Opus | Cloud-based, excellent vision |
+| **Google** | Gemini 1.5 Flash/Pro | Cloud-based, fast |
+| **Ollama** | LLaVA, BakLLaVA | Local/self-hosted, private |
+
+### Configuration
+
+1. Go to the **AI Settings** page in the web UI
+2. Select your preferred AI provider
+3. Enter your API key (or server URL for Ollama)
+4. Enable the features you want:
+   - **OCR Enhancement**: Use AI to verify/correct OCR readings
+   - **Scene Description**: Generate descriptions of camera view
+
+### Features
+
+#### Enhanced OCR
+When enabled, AI will analyze the ROI region and extract numeric values, which can improve accuracy especially for:
+- Low contrast displays
+- Unusual fonts or digit styles
+- Partial occlusion
+
+#### Scene Description
+Generates a brief description of what the camera sees, useful for:
+- Security monitoring
+- Weather/lighting conditions
+- Activity detection
+
+The description is exposed as the `video_description` attribute on each sensor.
+
+### Example Automation with Scene Description
+
+```yaml
+automation:
+  - alias: "Alert when person detected"
+    trigger:
+      - platform: template
+        value_template: "{{ 'person' in state_attr('sensor.front_camera', 'video_description') | lower }}"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "Person Detected"
+          message: "{{ state_attr('sensor.front_camera', 'video_description') }}"
+```
 
 ## Automation Examples
 

@@ -77,6 +77,7 @@ class ExtractedValue:
     roi_width: int = 0
     roi_height: int = 0
     error: Optional[str] = None
+    video_description: str = ""  # AI-generated scene description
 
 
 @dataclass
@@ -88,6 +89,17 @@ class DiscoveredCamera:
     model: str = ""
     name: str = ""
     stream_url: str = ""
+
+
+@dataclass
+class AIProviderConfig:
+    """AI provider configuration."""
+    provider: str = "none"  # none, openai, anthropic, google, ollama
+    api_key: str = ""
+    api_url: str = ""  # For Ollama or custom endpoints
+    model: str = ""  # Model name
+    enabled_for_ocr: bool = False
+    enabled_for_description: bool = False
 
 
 class TemplateMatcher:
@@ -611,6 +623,251 @@ class PTZController:
             return {'error': str(e)}
 
 
+class AIService:
+    """AI service for OCR enhancement and scene description."""
+
+    # Storage path for AI config
+    AI_CONFIG_PATH = os.path.join(CONFIG_PATH, 'ai_config.json')
+
+    # Default models for each provider
+    DEFAULT_MODELS = {
+        'openai': 'gpt-4o',
+        'anthropic': 'claude-sonnet-4-20250514',
+        'google': 'gemini-1.5-flash',
+        'ollama': 'llava'
+    }
+
+    _config: Optional[AIProviderConfig] = None
+
+    @classmethod
+    def load_config(cls) -> AIProviderConfig:
+        """Load AI configuration."""
+        if cls._config is not None:
+            return cls._config
+
+        try:
+            if os.path.exists(cls.AI_CONFIG_PATH):
+                with open(cls.AI_CONFIG_PATH, 'r') as f:
+                    data = json.load(f)
+                    cls._config = AIProviderConfig(**data)
+            else:
+                cls._config = AIProviderConfig()
+        except Exception as e:
+            logger.error(f"Error loading AI config: {e}")
+            cls._config = AIProviderConfig()
+
+        return cls._config
+
+    @classmethod
+    def save_config(cls, config: AIProviderConfig):
+        """Save AI configuration."""
+        cls._config = config
+        try:
+            with open(cls.AI_CONFIG_PATH, 'w') as f:
+                json.dump(asdict(config), f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving AI config: {e}")
+
+    @classmethod
+    def get_config(cls) -> dict:
+        """Get AI configuration as dict (hide API key)."""
+        config = cls.load_config()
+        return {
+            'provider': config.provider,
+            'api_url': config.api_url,
+            'model': config.model,
+            'enabled_for_ocr': config.enabled_for_ocr,
+            'enabled_for_description': config.enabled_for_description,
+            'has_api_key': bool(config.api_key)
+        }
+
+    @classmethod
+    def describe_scene(cls, image_base64: str) -> str:
+        """Generate scene description using AI."""
+        config = cls.load_config()
+
+        if not config.enabled_for_description or config.provider == 'none':
+            return ""
+
+        try:
+            if config.provider == 'openai':
+                return cls._call_openai(image_base64, "scene")
+            elif config.provider == 'anthropic':
+                return cls._call_anthropic(image_base64, "scene")
+            elif config.provider == 'google':
+                return cls._call_google(image_base64, "scene")
+            elif config.provider == 'ollama':
+                return cls._call_ollama(image_base64, "scene")
+        except Exception as e:
+            logger.error(f"AI scene description error: {e}")
+            return f"Error: {str(e)}"
+
+        return ""
+
+    @classmethod
+    def enhance_ocr(cls, image_base64: str, roi_image_base64: str = None) -> Optional[str]:
+        """Use AI to extract/verify OCR value."""
+        config = cls.load_config()
+
+        if not config.enabled_for_ocr or config.provider == 'none':
+            return None
+
+        image_to_use = roi_image_base64 or image_base64
+
+        try:
+            if config.provider == 'openai':
+                return cls._call_openai(image_to_use, "ocr")
+            elif config.provider == 'anthropic':
+                return cls._call_anthropic(image_to_use, "ocr")
+            elif config.provider == 'google':
+                return cls._call_google(image_to_use, "ocr")
+            elif config.provider == 'ollama':
+                return cls._call_ollama(image_to_use, "ocr")
+        except Exception as e:
+            logger.error(f"AI OCR error: {e}")
+
+        return None
+
+    @classmethod
+    def _get_prompt(cls, task: str) -> str:
+        """Get prompt for task."""
+        if task == "scene":
+            return "Describe this camera scene in one concise sentence. Include: location type, weather/lighting, time of day if visible, any people or activities, and notable objects. Be factual and brief."
+        elif task == "ocr":
+            return "Extract the numeric value shown in this image. Return ONLY the number (with decimal point if present). If no number is visible, return 'none'."
+        return ""
+
+    @classmethod
+    def _call_openai(cls, image_base64: str, task: str) -> str:
+        """Call OpenAI API."""
+        import urllib.request
+
+        config = cls.load_config()
+        model = config.model or cls.DEFAULT_MODELS['openai']
+
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {config.api_key}'
+        }
+
+        data = {
+            'model': model,
+            'messages': [{
+                'role': 'user',
+                'content': [
+                    {'type': 'text', 'text': cls._get_prompt(task)},
+                    {'type': 'image_url', 'image_url': {'url': f'data:image/jpeg;base64,{image_base64}'}}
+                ]
+            }],
+            'max_tokens': 300
+        }
+
+        req = urllib.request.Request(
+            'https://api.openai.com/v1/chat/completions',
+            data=json.dumps(data).encode('utf-8'),
+            headers=headers,
+            method='POST'
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            return result['choices'][0]['message']['content'].strip()
+
+    @classmethod
+    def _call_anthropic(cls, image_base64: str, task: str) -> str:
+        """Call Anthropic API."""
+        import urllib.request
+
+        config = cls.load_config()
+        model = config.model or cls.DEFAULT_MODELS['anthropic']
+
+        headers = {
+            'Content-Type': 'application/json',
+            'x-api-key': config.api_key,
+            'anthropic-version': '2023-06-01'
+        }
+
+        data = {
+            'model': model,
+            'max_tokens': 300,
+            'messages': [{
+                'role': 'user',
+                'content': [
+                    {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': image_base64}},
+                    {'type': 'text', 'text': cls._get_prompt(task)}
+                ]
+            }]
+        }
+
+        req = urllib.request.Request(
+            'https://api.anthropic.com/v1/messages',
+            data=json.dumps(data).encode('utf-8'),
+            headers=headers,
+            method='POST'
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            return result['content'][0]['text'].strip()
+
+    @classmethod
+    def _call_google(cls, image_base64: str, task: str) -> str:
+        """Call Google Gemini API."""
+        import urllib.request
+
+        config = cls.load_config()
+        model = config.model or cls.DEFAULT_MODELS['google']
+
+        url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={config.api_key}'
+
+        data = {
+            'contents': [{
+                'parts': [
+                    {'text': cls._get_prompt(task)},
+                    {'inline_data': {'mime_type': 'image/jpeg', 'data': image_base64}}
+                ]
+            }]
+        }
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(data).encode('utf-8'),
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            return result['candidates'][0]['content']['parts'][0]['text'].strip()
+
+    @classmethod
+    def _call_ollama(cls, image_base64: str, task: str) -> str:
+        """Call Ollama API (local)."""
+        import urllib.request
+
+        config = cls.load_config()
+        model = config.model or cls.DEFAULT_MODELS['ollama']
+        api_url = config.api_url or 'http://localhost:11434'
+
+        data = {
+            'model': model,
+            'prompt': cls._get_prompt(task),
+            'images': [image_base64],
+            'stream': False
+        }
+
+        req = urllib.request.Request(
+            f'{api_url}/api/generate',
+            data=json.dumps(data).encode('utf-8'),
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+
+        with urllib.request.urlopen(req, timeout=60) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            return result.get('response', '').strip()
+
+
 class CameraProcessor:
     """Process camera streams and extract values with template matching support."""
 
@@ -1116,6 +1373,17 @@ class CameraProcessor:
             return
 
         result = self.extract_value(camera, frame)
+
+        # Generate AI scene description if enabled
+        ai_config = AIService.load_config()
+        if ai_config.enabled_for_description:
+            try:
+                _, buffer = cv2.imencode('.jpg', frame)
+                image_base64 = base64.b64encode(buffer).decode('utf-8')
+                result.video_description = AIService.describe_scene(image_base64)
+            except Exception as e:
+                logger.error(f"AI scene description error: {e}")
+
         self.values[camera.name] = result
 
         # Add to history
@@ -1127,7 +1395,8 @@ class CameraProcessor:
             'timestamp': result.timestamp,
             'confidence': result.confidence,
             'raw_text': result.raw_text,
-            'error': result.error
+            'error': result.error,
+            'video_description': result.video_description
         })
 
         # Keep only last MAX_HISTORY entries
@@ -1318,6 +1587,14 @@ WEB_UI = '''
 
         .value-card-unit { font-size: 18px; color: var(--text-2); margin-left: 4px; }
         .value-card-meta { font-size: 12px; color: var(--text-3); }
+        .value-card-description {
+            font-size: 12px;
+            color: var(--text-2);
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+            font-style: italic;
+        }
 
         /* Buttons */
         .btn {
@@ -1880,6 +2157,7 @@ WEB_UI = '''
                 <button class="nav-btn" data-page="live">Live Preview</button>
                 <button class="nav-btn" data-page="templates">Templates</button>
                 <button class="nav-btn" data-page="discover">Discover</button>
+                <button class="nav-btn" data-page="ai-settings">AI Settings</button>
             </nav>
         </header>
 
@@ -2100,6 +2378,77 @@ WEB_UI = '''
                     </div>
                 </div>
             </div>
+
+            <!-- AI Settings Page -->
+            <div id="page-ai-settings" class="page">
+                <div class="card">
+                    <div class="card-title">AI Provider Configuration</div>
+                    <p style="font-size: 13px; color: var(--text-3); margin-bottom: 16px;">
+                        Configure an AI provider to enhance OCR accuracy and generate video scene descriptions.
+                    </p>
+
+                    <div class="form-group">
+                        <label class="form-label">AI Provider</label>
+                        <select id="ai-provider" class="form-input" onchange="onAIProviderChange()">
+                            <option value="none">None (Disabled)</option>
+                            <option value="openai">OpenAI (GPT-4o)</option>
+                            <option value="anthropic">Anthropic (Claude)</option>
+                            <option value="google">Google (Gemini)</option>
+                            <option value="ollama">Ollama (Local)</option>
+                        </select>
+                    </div>
+
+                    <div id="ai-config-fields" style="display: none;">
+                        <div class="form-group" id="ai-apikey-group">
+                            <label class="form-label">API Key</label>
+                            <input type="password" id="ai-apikey" class="form-input" placeholder="Enter API key">
+                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;">
+                                Your API key is stored locally and never shared.
+                            </p>
+                        </div>
+
+                        <div class="form-group" id="ai-url-group" style="display: none;">
+                            <label class="form-label">Server URL</label>
+                            <input type="text" id="ai-url" class="form-input" placeholder="http://localhost:11434">
+                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;">
+                                URL to your Ollama or compatible server.
+                            </p>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Model (optional)</label>
+                            <input type="text" id="ai-model" class="form-input" placeholder="Leave empty for default">
+                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;" id="ai-model-hint">
+                                Default: gpt-4o
+                            </p>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Features</label>
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="ai-enable-ocr">
+                                    <span>Use AI to enhance OCR accuracy</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="ai-enable-description">
+                                    <span>Generate video scene descriptions</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; margin-top: 16px;">
+                        <button class="btn btn-primary" onclick="saveAIConfig()">Save Configuration</button>
+                        <button class="btn btn-secondary" onclick="testAI()" id="test-ai-btn" style="display: none;">Test Connection</button>
+                    </div>
+                </div>
+
+                <div class="card" id="ai-test-results" style="display: none;">
+                    <div class="card-title">Test Results</div>
+                    <div id="ai-test-content"></div>
+                </div>
+            </div>
         </main>
 
         <div class="status-bar">
@@ -2306,7 +2655,7 @@ WEB_UI = '''
             const select = document.getElementById('preview-camera-select');
             const cameraName = select.value;
             if (!cameraName) {
-                showToast('Please select a camera first', 'error');
+                toast('Please select a camera first', 'error');
                 return;
             }
 
@@ -2318,14 +2667,14 @@ WEB_UI = '''
                 });
                 const result = await res.json();
                 if (result.error) {
-                    showToast(result.error, 'error');
+                    toast(result.error, 'error');
                 } else {
-                    showToast(`PTZ: ${direction}`, 'success');
+                    toast(`PTZ: ${direction}`, 'success');
                     // Refresh preview after PTZ move
                     setTimeout(() => refreshPreview(), 500);
                 }
             } catch (e) {
-                showToast('PTZ command failed: ' + e.message, 'error');
+                toast('PTZ command failed: ' + e.message, 'error');
             }
         }
 
@@ -2376,6 +2725,7 @@ WEB_UI = '''
 
             if (page === 'live') populateCameraSelect();
             if (page === 'templates') loadTemplates();
+            if (page === 'ai-settings') loadAIConfig();
         }
 
         // Data Loading
@@ -2527,6 +2877,7 @@ WEB_UI = '''
                 const displayValue = data.value !== null ? data.value : '--';
                 const time = data.timestamp ? new Date(data.timestamp * 1000).toLocaleTimeString() : '';
 
+                const description = data.video_description || '';
                 return `
                     <div class="value-card">
                         <div class="value-card-header">
@@ -2540,6 +2891,7 @@ WEB_UI = '''
                             ${hasError ? `<span style="color: var(--error);">${data.error}</span>` :
                               `Confidence: ${(data.confidence || 0).toFixed(0)}% • ${time}`}
                         </div>
+                        ${description ? `<div class="value-card-description">${description}</div>` : ''}
                     </div>
                 `;
             }).join('');
@@ -3500,6 +3852,162 @@ WEB_UI = '''
                 setTimeout(() => toast.remove(), 200);
             }, 3000);
         }
+
+        // AI Settings
+        const AI_MODEL_HINTS = {
+            'none': '',
+            'openai': 'Default: gpt-4o (supports vision)',
+            'anthropic': 'Default: claude-sonnet-4-20250514',
+            'google': 'Default: gemini-1.5-flash',
+            'ollama': 'Default: llava (requires vision model)'
+        };
+
+        async function loadAIConfig() {
+            try {
+                const res = await fetch('api/ai-config');
+                const config = await res.json();
+
+                document.getElementById('ai-provider').value = config.provider;
+                document.getElementById('ai-url').value = config.api_url || '';
+                document.getElementById('ai-model').value = config.model || '';
+                document.getElementById('ai-enable-ocr').checked = config.enabled_for_ocr;
+                document.getElementById('ai-enable-description').checked = config.enabled_for_description;
+
+                onAIProviderChange();
+
+                if (config.has_api_key) {
+                    document.getElementById('ai-apikey').placeholder = '••••••••••••••••';
+                }
+            } catch (e) {
+                console.error('Failed to load AI config:', e);
+            }
+        }
+
+        function onAIProviderChange() {
+            const provider = document.getElementById('ai-provider').value;
+            const configFields = document.getElementById('ai-config-fields');
+            const urlGroup = document.getElementById('ai-url-group');
+            const apiKeyGroup = document.getElementById('ai-apikey-group');
+            const modelHint = document.getElementById('ai-model-hint');
+            const testBtn = document.getElementById('test-ai-btn');
+
+            if (provider === 'none') {
+                configFields.style.display = 'none';
+                testBtn.style.display = 'none';
+            } else {
+                configFields.style.display = 'block';
+                testBtn.style.display = 'inline-flex';
+
+                // Show/hide URL field for Ollama
+                urlGroup.style.display = provider === 'ollama' ? 'block' : 'none';
+
+                // Hide API key for Ollama (optional)
+                apiKeyGroup.style.display = provider === 'ollama' ? 'none' : 'block';
+
+                // Update model hint
+                modelHint.textContent = AI_MODEL_HINTS[provider] || '';
+            }
+        }
+
+        async function saveAIConfig() {
+            const provider = document.getElementById('ai-provider').value;
+            const apiKey = document.getElementById('ai-apikey').value;
+            const apiUrl = document.getElementById('ai-url').value;
+            const model = document.getElementById('ai-model').value;
+            const enableOcr = document.getElementById('ai-enable-ocr').checked;
+            const enableDescription = document.getElementById('ai-enable-description').checked;
+
+            try {
+                const res = await fetch('api/ai-config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        provider,
+                        api_key: apiKey,
+                        api_url: apiUrl,
+                        model,
+                        enabled_for_ocr: enableOcr,
+                        enabled_for_description: enableDescription
+                    })
+                });
+
+                if (res.ok) {
+                    toast('AI configuration saved', 'success');
+                } else {
+                    toast('Failed to save configuration', 'error');
+                }
+            } catch (e) {
+                toast('Error: ' + e.message, 'error');
+            }
+        }
+
+        async function testAI() {
+            const testBtn = document.getElementById('test-ai-btn');
+            const resultsCard = document.getElementById('ai-test-results');
+            const resultsContent = document.getElementById('ai-test-content');
+
+            // Need a camera to test
+            const cameraNames = Object.keys(cameras);
+            if (cameraNames.length === 0) {
+                toast('Add a camera first to test AI', 'error');
+                return;
+            }
+
+            testBtn.disabled = true;
+            testBtn.textContent = 'Testing...';
+            resultsCard.style.display = 'block';
+            resultsContent.innerHTML = '<div class="loading"></div><p>Testing AI connection...</p>';
+
+            try {
+                const res = await fetch('api/ai-test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ camera: cameraNames[0] })
+                });
+
+                const data = await res.json();
+
+                if (data.error) {
+                    resultsContent.innerHTML = `<p style="color: var(--error);">Error: ${data.error}</p>`;
+                } else {
+                    let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
+
+                    if (data.description) {
+                        html += `
+                            <div>
+                                <strong>Scene Description:</strong>
+                                <p style="background: var(--bg); padding: 12px; border-radius: 6px; margin-top: 4px;">${data.description}</p>
+                            </div>
+                        `;
+                    }
+
+                    if (data.ocr) {
+                        html += `
+                            <div>
+                                <strong>OCR Result:</strong>
+                                <p style="background: var(--bg); padding: 12px; border-radius: 6px; margin-top: 4px;">${data.ocr}</p>
+                            </div>
+                        `;
+                    }
+
+                    if (!data.description && !data.ocr) {
+                        html += '<p>No features enabled. Enable OCR enhancement or scene description above.</p>';
+                    }
+
+                    html += '</div>';
+                    resultsContent.innerHTML = html;
+                    toast('AI test completed', 'success');
+                }
+            } catch (e) {
+                resultsContent.innerHTML = `<p style="color: var(--error);">Error: ${e.message}</p>`;
+            }
+
+            testBtn.disabled = false;
+            testBtn.textContent = 'Test Connection';
+        }
+
+        // Load AI config when visiting AI settings page
+        document.querySelector('[data-page="ai-settings"]').addEventListener('click', loadAIConfig);
     </script>
 </body>
 </html>
@@ -3811,6 +4319,66 @@ def discover_cameras():
 
     logger.info(f"Total cameras discovered: {len(cameras)}")
     return jsonify(cameras)
+
+
+@app.route('/api/ai-config', methods=['GET'])
+def get_ai_config():
+    """Get AI configuration."""
+    return jsonify(AIService.get_config())
+
+
+@app.route('/api/ai-config', methods=['POST'])
+def save_ai_config():
+    """Save AI configuration."""
+    data = request.json
+    config = AIProviderConfig(
+        provider=data.get('provider', 'none'),
+        api_key=data.get('api_key', ''),
+        api_url=data.get('api_url', ''),
+        model=data.get('model', ''),
+        enabled_for_ocr=data.get('enabled_for_ocr', False),
+        enabled_for_description=data.get('enabled_for_description', False)
+    )
+    AIService.save_config(config)
+    return jsonify({'success': True})
+
+
+@app.route('/api/ai-test', methods=['POST'])
+def test_ai():
+    """Test AI connection with a sample image."""
+    data = request.json
+    camera_name = data.get('camera')
+
+    if not camera_name:
+        return jsonify({'error': 'Camera name required'}), 400
+
+    camera_config = processor.cameras.get(camera_name)
+    if not camera_config:
+        return jsonify({'error': f'Camera not found: {camera_name}'}), 404
+
+    # Capture frame
+    frame = processor.capture_frame(camera_config)
+    if frame is None:
+        return jsonify({'error': 'Failed to capture frame'}), 500
+
+    # Convert to base64
+    _, buffer = cv2.imencode('.jpg', frame)
+    image_base64 = base64.b64encode(buffer).decode('utf-8')
+
+    result = {'success': True}
+
+    # Test scene description
+    config = AIService.load_config()
+    if config.enabled_for_description:
+        description = AIService.describe_scene(image_base64)
+        result['description'] = description
+
+    # Test OCR
+    if config.enabled_for_ocr:
+        ocr_result = AIService.enhance_ocr(image_base64)
+        result['ocr'] = ocr_result
+
+    return jsonify(result)
 
 
 @app.route('/api/ptz', methods=['POST'])

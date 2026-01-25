@@ -1,11 +1,22 @@
 # Changelog
 
+## [1.2.9] - 2026
+
+### Changed
+- Version bump to trigger add-on update
+
 ## [1.2.8] - 2026
 
 ### Added
 - PTZ (Pan-Tilt) controls in Live Preview for ONVIF cameras
 - PTZ buttons: Up, Down, Left, Right, Home position
 - ROI preview in Test Extract mode - shows cropped region being analyzed
+- AI Integration for enhanced OCR and scene description
+  - Support for OpenAI (GPT-4o), Anthropic (Claude), Google (Gemini), and Ollama (local)
+  - AI-powered OCR enhancement for better value extraction
+  - Video scene description generation (exposed as `video_description` attribute)
+  - New AI Settings page for configuration
+- Video description display on dashboard for each camera
 
 ### Changed
 - Replaced rotate buttons with PTZ controls
