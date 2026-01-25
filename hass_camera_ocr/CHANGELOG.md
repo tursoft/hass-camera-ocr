@@ -19,6 +19,8 @@
 - Fixed "No saved ROIs for this camera" error in Train OCR and Validate ROI functions
 - Fixed AI test using form values instead of requiring saved config first
 - Fixed Train OCR showing 0% accuracy due to strict string comparison (now uses flexible numeric comparison)
+- Fixed test extraction using incorrect coordinates when zoomed/scrolled
+- Fixed "Test All" button clearing validation values in ROI boxes (now only updates extracted value)
 
 ## [1.2.19] - 2026
 
