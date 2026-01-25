@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.2.20] - 2026
+
+### Added
+- **Per-Camera AI Configuration**: Each camera can now have its own AI provider settings
+- AI Settings page now shows camera selector to configure AI per camera
+- Support for different AI/OCR providers per camera
+
+### Changed
+- Moved HTML from server.py to separate template file (templates/index.html)
+- Unified saved ROIs with camera ROI config - "Save ROI" now saves to both
+- Live preview area now maintains 16:9 aspect ratio
+- Removed separate "Save ROI to Camera" button (Apply does this now)
+
+### Fixed
+- Improved code maintainability with separate template files
+
 ## [1.2.19] - 2026
 
 ### Changed
