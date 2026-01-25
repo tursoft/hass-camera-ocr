@@ -2194,7 +2194,7 @@
                             </div>
                             ` : ''}
                         </div>
-                        ${entry.roi_image_id && entry.roi_width > 0 ? `
+                        ${entry.roi_image_id ? `
                         <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
                             <button class="btn btn-success" onclick="saveHistoryAsROI('${selectedHistoryCamera}', ${JSON.stringify(entry).replace(/"/g, '&quot;')})">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="margin-right: 4px;">
