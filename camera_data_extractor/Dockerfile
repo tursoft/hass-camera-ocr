@@ -14,7 +14,6 @@ RUN apk add --no-cache \
     flask \
     flask-cors \
     pytesseract \
-    opencv-python-headless \
     requests
 
 # Copy application files
