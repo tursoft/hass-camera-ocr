@@ -2617,6 +2617,7 @@ def save_roi(camera_name):
     roi = data.get('roi', {})
     screenshot = data.get('screenshot', '')  # base64 image
     extracted_value = data.get('extracted_value')
+    validated_value = data.get('validated_value')
 
     if not roi or not screenshot:
         return jsonify({'error': 'ROI and screenshot required'}), 400
@@ -2641,6 +2642,12 @@ def save_roi(camera_name):
         'camera': camera_name,
         'extracted_value': extracted_value
     }
+
+    # Add validated value if provided
+    if validated_value is not None:
+        roi_data['validated_value'] = validated_value
+        roi_data['validated_at'] = time.time()
+
     json_path = roi_dir / f"{roi_id}.json"
     with open(json_path, 'w') as f:
         json.dump(roi_data, f)

@@ -2269,10 +2269,87 @@
             document.body.appendChild(dialog);
         }
 
+        function promptForValidationValue(extractedValue, imageUrl) {
+            return new Promise((resolve) => {
+                const dialog = document.createElement('div');
+                dialog.className = 'history-detail-dialog';
+                dialog.onclick = (e) => { if (e.target === dialog) { dialog.remove(); resolve(null); } };
+
+                const imgHtml = imageUrl ? `<img src="${imageUrl}" style="max-width: 100%; max-height: 150px; border-radius: 6px; margin-bottom: 12px; background: var(--bg);">` : '';
+
+                dialog.innerHTML = `
+                    <div class="history-detail-content" style="max-width: 400px;">
+                        <div class="history-detail-header">
+                            <h3>Save ROI with Validation</h3>
+                            <button class="modal-close" onclick="this.closest('.history-detail-dialog').remove()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="history-detail-body">
+                            ${imgHtml}
+                            <div style="margin-bottom: 12px;">
+                                <label class="form-label">Extracted Value (OCR Result)</label>
+                                <div style="font-size: 20px; font-weight: 600; color: var(--primary);">${extractedValue !== null && extractedValue !== undefined ? extractedValue : '--'}</div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Correct Value (for training)</label>
+                                <input type="text" id="validation-value-input" class="form-input"
+                                       value="${extractedValue !== null && extractedValue !== undefined ? extractedValue : ''}"
+                                       placeholder="Enter the correct value" autofocus>
+                                <p style="font-size: 11px; color: var(--text-3); margin-top: 4px;">
+                                    Enter the actual correct value to help train OCR accuracy. Leave empty to skip validation.
+                                </p>
+                            </div>
+                            <div style="display: flex; gap: 8px; margin-top: 16px;">
+                                <button class="btn btn-primary" id="save-with-validation-btn" style="flex: 1;">
+                                    Save ROI
+                                </button>
+                                <button class="btn btn-secondary" onclick="this.closest('.history-detail-dialog').remove()">
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(dialog);
+
+                // Focus and select input
+                setTimeout(() => {
+                    const input = document.getElementById('validation-value-input');
+                    input.focus();
+                    input.select();
+                }, 100);
+
+                // Handle save button
+                document.getElementById('save-with-validation-btn').onclick = () => {
+                    const validatedValue = document.getElementById('validation-value-input').value.trim();
+                    dialog.remove();
+                    resolve(validatedValue || null);
+                };
+
+                // Handle enter key
+                document.getElementById('validation-value-input').onkeydown = (e) => {
+                    if (e.key === 'Enter') {
+                        document.getElementById('save-with-validation-btn').click();
+                    }
+                };
+            });
+        }
+
         async function saveHistoryAsROI(cameraName, entry) {
+            // Prompt for validation value first
+            const imageUrl = `api/history-image/${encodeURIComponent(cameraName)}/${entry.roi_image_id}`;
+            const validatedValue = await promptForValidationValue(entry.value, imageUrl);
+            if (validatedValue === null && !confirm('Save ROI without validation value?')) {
+                return;
+            }
+
             try {
                 // Fetch the history image as base64
-                const imgRes = await fetch(`api/history-image/${encodeURIComponent(cameraName)}/${entry.roi_image_id}`);
+                const imgRes = await fetch(imageUrl);
                 if (!imgRes.ok) {
                     toast('Failed to load history image', 'error');
                     return;
@@ -2294,7 +2371,8 @@
                                 height: entry.roi_height || 0
                             },
                             screenshot: base64,
-                            extracted_value: entry.value
+                            extracted_value: entry.value,
+                            validated_value: validatedValue
                         })
                     });
 
@@ -3292,6 +3370,12 @@
                 console.error('Test extraction failed:', e);
             }
 
+            // Prompt for validation value
+            const validatedValue = await promptForValidationValue(extractedValue, tempCanvas.toDataURL('image/png'));
+            if (validatedValue === null && !confirm('Save ROI without validation value?')) {
+                return;
+            }
+
             try {
                 const res = await fetch(`api/saved-rois/${encodeURIComponent(name)}`, {
                     method: 'POST',
@@ -3299,7 +3383,8 @@
                     body: JSON.stringify({
                         roi: { x: roiX, y: roiY, width: roiW, height: roiH },
                         screenshot: screenshot,
-                        extracted_value: extractedValue
+                        extracted_value: extractedValue,
+                        validated_value: validatedValue
                     })
                 });
 
