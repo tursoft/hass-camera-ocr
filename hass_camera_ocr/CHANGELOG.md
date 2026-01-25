@@ -18,6 +18,7 @@
 - Improved code maintainability with separate template files
 - Fixed "No saved ROIs for this camera" error in Train OCR and Validate ROI functions
 - Fixed AI test using form values instead of requiring saved config first
+- Fixed Train OCR showing 0% accuracy due to strict string comparison (now uses flexible numeric comparison)
 
 ## [1.2.19] - 2026
 
