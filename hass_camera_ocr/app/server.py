@@ -528,6 +528,9 @@ class PTZController:
     </s:Body>
 </s:Envelope>'''
 
+    # Common profile token names used by different camera manufacturers
+    PROFILE_TOKENS = ['Profile_1', 'profile_1', 'MainStream', 'Profile1', '000', '001', 'token']
+
     @classmethod
     def move(cls, camera_config: 'CameraConfig', direction: str, speed: float = 0.5, duration: float = 0.3) -> dict:
         """Send PTZ command to camera."""
@@ -541,8 +544,13 @@ class PTZController:
             if not host:
                 return {'error': 'Could not determine camera IP from stream URL'}
 
-            # ONVIF PTZ service URL (typically port 80)
-            ptz_url = f"http://{host}/onvif/PTZ"
+            # Try different ONVIF PTZ service URLs
+            ptz_urls = [
+                f"http://{host}/onvif/PTZ",
+                f"http://{host}:80/onvif/PTZ",
+                f"http://{host}/onvif/ptz_service",
+                f"http://{host}:8080/onvif/PTZ",
+            ]
 
             # Determine pan/tilt values based on direction
             pan = 0.0
@@ -556,38 +564,53 @@ class PTZController:
             elif direction == 'down':
                 tilt = -speed
             elif direction == 'home':
-                return cls._goto_home(ptz_url, username, password)
+                for ptz_url in ptz_urls:
+                    for profile in cls.PROFILE_TOKENS:
+                        result = cls._goto_home(ptz_url, username, password, profile)
+                        if result.get('success'):
+                            return result
+                return {'error': 'PTZ home command failed on all endpoints'}
 
-            # Send continuous move command
-            move_result = cls._send_ptz_command(
-                ptz_url, username, password,
-                cls.PTZ_CONTINUOUS_MOVE.format(profile='profile_1', pan=pan, tilt=tilt)
-            )
+            # Try different URLs and profiles
+            last_error = None
+            for ptz_url in ptz_urls:
+                for profile in cls.PROFILE_TOKENS:
+                    logger.debug(f"Trying PTZ: URL={ptz_url}, profile={profile}")
+                    move_result = cls._send_ptz_command(
+                        ptz_url, username, password,
+                        cls.PTZ_CONTINUOUS_MOVE.format(profile=profile, pan=pan, tilt=tilt)
+                    )
 
-            if move_result.get('error'):
-                return move_result
+                    if move_result.get('success'):
+                        # Wait for movement
+                        time.sleep(duration)
 
-            # Wait for movement
-            time.sleep(duration)
+                        # Stop movement
+                        cls._send_ptz_command(
+                            ptz_url, username, password,
+                            cls.PTZ_STOP.format(profile=profile)
+                        )
 
-            # Stop movement
-            cls._send_ptz_command(
-                ptz_url, username, password,
-                cls.PTZ_STOP.format(profile='profile_1')
-            )
+                        logger.info(f"PTZ success: URL={ptz_url}, profile={profile}")
+                        return {'success': True, 'direction': direction}
 
-            return {'success': True, 'direction': direction}
+                    last_error = move_result.get('error')
+                    # Don't try more profiles if it's a connection error
+                    if 'Connection failed' in str(last_error):
+                        break
+
+            return {'error': f'PTZ command failed: {last_error}'}
 
         except Exception as e:
             logger.error(f"PTZ error: {e}")
             return {'error': str(e)}
 
     @classmethod
-    def _goto_home(cls, ptz_url: str, username: str, password: str) -> dict:
+    def _goto_home(cls, ptz_url: str, username: str, password: str, profile: str = 'Profile_1') -> dict:
         """Go to home position."""
         return cls._send_ptz_command(
             ptz_url, username, password,
-            cls.PTZ_GOTO_HOME.format(profile='profile_1')
+            cls.PTZ_GOTO_HOME.format(profile=profile)
         )
 
     @classmethod

@@ -1,0 +1,70 @@
+%%{init: {'theme': 'dark'}}%%
+graph TB
+    subgraph "Home Assistant"
+        HA[Home Assistant Core]
+        Ingress[Ingress Proxy]
+    end
+
+    subgraph "Camera OCR Add-on"
+        Nginx[Nginx<br/>:8099]
+        Flask[Flask Server<br/>:5000]
+
+        subgraph "Processing"
+            OCR[Tesseract OCR]
+            CV[OpenCV]
+            TM[Template Matcher]
+        end
+
+        subgraph "AI Services"
+            AI[AI Service]
+            OpenAI[OpenAI GPT-4o]
+            Anthropic[Anthropic Claude]
+            Google[Google Gemini]
+            Ollama[Ollama Local]
+            CloudOCR[Cloud OCR<br/>Google Vision<br/>Azure CV<br/>AWS Textract]
+        end
+
+        subgraph "Storage"
+            Config[/config/hass_camera_ocr/]
+            Cameras[(cameras.json)]
+            Templates[(templates/)]
+            History[(history.json)]
+            SavedROIs[(saved_rois/)]
+            AIConfig[(ai_config.json)]
+        end
+    end
+
+    subgraph "External"
+        IPCam[IP Cameras<br/>RTSP/HTTP]
+        ONVIF[ONVIF Discovery]
+    end
+
+    HA --> Ingress
+    Ingress --> Nginx
+    Nginx --> Flask
+
+    Flask --> OCR
+    Flask --> CV
+    Flask --> TM
+    Flask --> AI
+
+    AI --> OpenAI
+    AI --> Anthropic
+    AI --> Google
+    AI --> Ollama
+    AI --> CloudOCR
+
+    Flask --> Config
+    Config --> Cameras
+    Config --> Templates
+    Config --> History
+    Config --> SavedROIs
+    Config --> AIConfig
+
+    Flask --> IPCam
+    Flask --> ONVIF
+
+    style Flask fill:#4a90d9
+    style OCR fill:#e74c3c
+    style AI fill:#9b59b6
+    style Config fill:#27ae60

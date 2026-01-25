@@ -1,0 +1,70 @@
+%%{init: {'theme': 'dark'}}%%
+graph LR
+    subgraph "Web UI Components"
+        Dashboard[Dashboard<br/>Value Cards<br/>History Table]
+        Cameras[Cameras Page<br/>CRUD Operations]
+        LivePreview[Live Preview<br/>ROI Selection<br/>PTZ Controls]
+        Templates[Templates<br/>Management]
+        Discovery[Camera Discovery<br/>ONVIF + Port Scan]
+        AISettings[AI Settings<br/>Provider Config]
+    end
+
+    subgraph "Flask API Layer"
+        CameraAPI[Camera API<br/>/api/cameras]
+        ValuesAPI[Values API<br/>/api/values]
+        HistoryAPI[History API<br/>/api/history]
+        CaptureAPI[Capture API<br/>/api/capture]
+        PTZAPI[PTZ API<br/>/api/ptz]
+        TemplateAPI[Template API<br/>/api/templates]
+        DiscoverAPI[Discover API<br/>/api/discover]
+        AIAPI[AI API<br/>/api/ai-config]
+        ROIAPI[Saved ROI API<br/>/api/saved-rois]
+    end
+
+    subgraph "Processing Layer"
+        CameraProcessor[CameraProcessor<br/>Frame Capture<br/>OCR Extraction]
+        TemplateMatcher[TemplateMatcher<br/>ROI Tracking]
+        PTZController[PTZController<br/>ONVIF Commands]
+        AIService[AIService<br/>AI Integration]
+        ONVIFDiscovery[ONVIFDiscovery<br/>WS-Discovery]
+        PortScanner[PortScanner<br/>Network Scan]
+    end
+
+    subgraph "Storage Layer"
+        CameraConfig[(cameras.json)]
+        TemplateStore[(templates/)]
+        HistoryStore[(history.json)]
+        ROIStore[(saved_rois/)]
+        AIConfigStore[(ai_config.json)]
+    end
+
+    Dashboard --> ValuesAPI
+    Dashboard --> HistoryAPI
+    Cameras --> CameraAPI
+    LivePreview --> CaptureAPI
+    LivePreview --> PTZAPI
+    LivePreview --> ROIAPI
+    Templates --> TemplateAPI
+    Discovery --> DiscoverAPI
+    AISettings --> AIAPI
+
+    CameraAPI --> CameraProcessor
+    ValuesAPI --> CameraProcessor
+    CaptureAPI --> CameraProcessor
+    PTZAPI --> PTZController
+    TemplateAPI --> TemplateMatcher
+    DiscoverAPI --> ONVIFDiscovery
+    DiscoverAPI --> PortScanner
+    AIAPI --> AIService
+    ROIAPI --> CameraProcessor
+
+    CameraProcessor --> CameraConfig
+    CameraProcessor --> HistoryStore
+    TemplateMatcher --> TemplateStore
+    AIService --> AIConfigStore
+    ROIAPI --> ROIStore
+
+    style Dashboard fill:#3498db
+    style LivePreview fill:#3498db
+    style CameraProcessor fill:#e74c3c
+    style AIService fill:#9b59b6

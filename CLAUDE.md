@@ -96,8 +96,9 @@ hass-camera-ocr/
 1. Bump the version number (increment patch version)
 2. Update all version files listed above
 3. Add changelog entry describing the changes
-4. Commit all changes with descriptive message
-5. Push to git
+4. **Generate/update architectural diagrams and screen mockups** (see Documentation section below)
+5. Commit all changes with descriptive message
+6. Push to git
 
 **Manual script available**: `scripts/bump-version.ps1 -Message "description"`
 
@@ -105,13 +106,34 @@ hass-camera-ocr/
 ```bash
 # 1. Increment patch version in all files (e.g., 1.2.9 -> 1.2.10)
 # 2. Add changelog entry
-# 3. Commit and push
+# 3. Update docs/diagrams if architecture changed
+# 4. Commit and push
 git add -A
 git commit -m "Feature description (v1.2.10)
 
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 git push
 ```
+
+### Documentation Updates
+
+**Before each version upgrade, Claude MUST update documentation:**
+
+1. **Architectural Diagrams** (`docs/diagrams/`):
+   - `architecture.mermaid` - System architecture diagram
+   - `data-flow.mermaid` - Data flow diagram
+   - `component-diagram.mermaid` - Component interactions
+   - Update these diagrams when architecture changes
+
+2. **Screen Mockups** (`docs/mockups/`):
+   - Update screenshots/mockups when UI changes
+   - Document new UI features with annotated screenshots
+   - Keep `docs/images/` folder updated with current screenshots
+
+3. **Documentation Files**:
+   - `README.md` - Main documentation
+   - `hass_camera_ocr/DOCS.md` - Add-on specific docs
+   - Update feature lists and configuration examples
 
 ### Commit Conventions
 
@@ -224,6 +246,9 @@ git push
 | 1.2.7 | Discovery previews, auto-populate Add Camera dialog |
 | 1.2.8 | PTZ controls, AI integration (OpenAI, Anthropic, Google, Ollama) |
 | 1.2.9 | Version bump, auto-bump script added |
+| 1.2.10 | Persistent history, saved ROI thumbnails, loading indicator |
+| 1.2.11 | Test ROI button, Test All ROIs, improved OCR preprocessing |
+| 1.2.12 | Cloud OCR providers (Google Vision, Azure, AWS), low confidence indicators |
 
 ## Testing Checklist
 

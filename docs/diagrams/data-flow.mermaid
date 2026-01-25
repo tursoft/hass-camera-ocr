@@ -1,0 +1,48 @@
+%%{init: {'theme': 'dark'}}%%
+sequenceDiagram
+    participant User
+    participant WebUI
+    participant Flask
+    participant CV as OpenCV
+    participant OCR as Tesseract
+    participant AI as AI Service
+    participant Camera as IP Camera
+    participant Storage
+
+    %% Camera Capture Flow
+    User->>WebUI: Request Live Preview
+    WebUI->>Flask: GET /api/capture/{name}
+    Flask->>Camera: Connect RTSP/HTTP
+    Camera-->>Flask: Video Frame
+    Flask->>CV: Process Frame
+    CV-->>Flask: Processed Image
+    Flask-->>WebUI: Base64 Image
+
+    %% OCR Extraction Flow
+    User->>WebUI: Click Test Extract
+    WebUI->>Flask: POST /api/test-extraction
+    Flask->>CV: Apply ROI
+    CV->>OCR: Preprocessed Image
+    OCR-->>CV: Raw Text
+    CV-->>Flask: Extracted Value
+
+    opt AI Enhancement Enabled
+        Flask->>AI: Enhance OCR
+        AI-->>Flask: Verified Value
+    end
+
+    Flask->>Storage: Save to History
+    Flask-->>WebUI: {value, confidence}
+
+    %% PTZ Control Flow
+    User->>WebUI: Click PTZ Button
+    WebUI->>Flask: POST /api/ptz
+    Flask->>Camera: ONVIF SOAP Command
+    Camera-->>Flask: Success/Error
+    Flask-->>WebUI: Result
+
+    %% Save ROI Flow
+    User->>WebUI: Draw ROI & Save
+    WebUI->>Flask: POST /api/saved-rois/{name}
+    Flask->>Storage: Save ROI + Screenshot
+    Flask-->>WebUI: Success
