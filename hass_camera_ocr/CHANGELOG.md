@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.28] - 2026
+
+### Fixed
+- Fixed Dockerfile build error on aarch64: use Alpine's native `py3-scikit-learn` package instead of pip (avoids compilation requiring gcc)
+- Reorganized Dockerfile with separate RUN commands for better caching
+
 ## [1.2.27] - 2026
 
 ### Fixed

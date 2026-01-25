@@ -1,36 +1,38 @@
 ARG BUILD_FROM
 FROM $BUILD_FROM
 
-# Install required packages
+# Install runtime packages
 RUN apk add --no-cache \
     python3 \
     py3-pip \
     py3-numpy \
+    py3-scikit-learn \
     tesseract-ocr \
     tesseract-ocr-data-eng \
     nginx \
-    # OpenCV dependencies
     libstdc++ \
     libgcc \
     libgomp \
-    # FFmpeg for RTSP stream support
     ffmpeg \
-    ffmpeg-libs \
-    && pip3 install --no-cache-dir --break-system-packages \
+    ffmpeg-libs
+
+# Install Python packages (using pre-built wheels where possible)
+RUN pip3 install --no-cache-dir --break-system-packages \
     flask \
     flask-cors \
     pytesseract \
     opencv-python-headless \
     numpy \
     requests \
-    Pillow \
-    scikit-learn \
-    # Install PyTorch CPU-only version (smaller, no CUDA)
-    && pip3 install --no-cache-dir --break-system-packages \
+    Pillow
+
+# Install PyTorch CPU-only version
+RUN pip3 install --no-cache-dir --break-system-packages \
     --index-url https://download.pytorch.org/whl/cpu \
-    torch \
-    # Install transformers after torch
-    && pip3 install --no-cache-dir --break-system-packages \
+    torch
+
+# Install transformers
+RUN pip3 install --no-cache-dir --break-system-packages \
     transformers
 
 # Copy application files
