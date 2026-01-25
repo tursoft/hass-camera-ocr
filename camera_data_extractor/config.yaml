@@ -40,4 +40,5 @@ schema:
       template_name: str?
   scan_interval: int(5,3600)
   log_level: list(debug|info|warning|error)
+image: ghcr.io/tursoft/ha-camera-data-extractor-{arch}
 init: false
