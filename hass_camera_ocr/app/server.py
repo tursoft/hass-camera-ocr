@@ -663,6 +663,7 @@ class AIService:
         'google': 'gemini-1.5-flash',
         'ollama': 'llava',
         'google-vision': 'document-text-detection',
+        'google-docai': 'ocr-processor',
         'azure-ocr': 'read',
         'aws-textract': 'detect-document-text'
     }
@@ -756,6 +757,8 @@ class AIService:
                 return cls._call_ollama(image_to_use, "ocr")
             elif config.provider == 'google-vision':
                 return cls._call_google_vision(image_to_use)
+            elif config.provider == 'google-docai':
+                return cls._call_google_docai(image_to_use)
             elif config.provider == 'azure-ocr':
                 return cls._call_azure_ocr(image_to_use)
             elif config.provider == 'aws-textract':
@@ -945,6 +948,57 @@ class AIService:
                 numbers = re.findall(r'[-+]?\d*\.?\d+', full_text)
                 if numbers:
                     return numbers[0]
+            return 'none'
+
+    @classmethod
+    def _call_google_docai(cls, image_base64: str) -> str:
+        """Call Google Document AI API for OCR."""
+        import urllib.request
+
+        config = cls.load_config()
+
+        # Document AI requires project ID and processor ID in the URL
+        # Format: api_url should be like: projects/PROJECT_ID/locations/LOCATION/processors/PROCESSOR_ID
+        processor_path = config.api_url or ''
+        if not processor_path:
+            logger.error("Google Document AI requires processor path in API URL field")
+            return 'none'
+
+        url = f'https://documentai.googleapis.com/v1/{processor_path}:process'
+
+        # Prepare the request
+        image_data = base64.b64decode(image_base64)
+
+        data = {
+            'rawDocument': {
+                'content': image_base64,
+                'mimeType': 'image/jpeg'
+            }
+        }
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(data).encode('utf-8'),
+            headers={
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {config.api_key}'
+            },
+            method='POST'
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                # Extract text from Document AI response
+                document = result.get('document', {})
+                full_text = document.get('text', '').strip()
+                # Extract numeric value from the text
+                numbers = re.findall(r'[-+]?\d*\.?\d+', full_text)
+                if numbers:
+                    return numbers[0]
+                return 'none'
+        except Exception as e:
+            logger.error(f"Google Document AI error: {e}")
             return 'none'
 
     @classmethod
@@ -2405,6 +2459,35 @@ WEB_UI = '''
 
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
+        .live-badge.paused {
+            background: rgba(128, 128, 128, 0.2);
+            color: var(--text-secondary);
+        }
+        .live-badge.paused::before {
+            background: var(--text-secondary);
+            animation: none;
+        }
+        .live-controls {
+            display: inline-flex;
+            margin-left: 8px;
+            gap: 4px;
+        }
+        .live-btn {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .live-btn:hover {
+            background: var(--bg-2);
+            color: var(--text);
+        }
+
         /* History table */
         .history-table {
             width: 100%;
@@ -2436,6 +2519,12 @@ WEB_UI = '''
         }
         .history-table th.value-header {
             text-align: right;
+        }
+        .history-table .order-cell,
+        .history-table th.order-header {
+            width: 40px;
+            text-align: center;
+            color: var(--text-secondary);
         }
         .history-table .error-cell {
             color: var(--error);
@@ -2570,7 +2659,20 @@ WEB_UI = '''
                             <rect x="3" y="14" width="7" height="7"></rect>
                         </svg>
                         Extracted Values
-                        <span class="live-badge">LIVE</span>
+                        <span class="live-badge" id="live-badge">LIVE</span>
+                        <div class="live-controls">
+                            <button class="live-btn" id="pause-btn" onclick="toggleLiveUpdates()" title="Pause updates">
+                                <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                                    <rect x="6" y="4" width="4" height="16"></rect>
+                                    <rect x="14" y="4" width="4" height="16"></rect>
+                                </svg>
+                            </button>
+                            <button class="live-btn" id="resume-btn" onclick="toggleLiveUpdates()" title="Resume updates" style="display: none;">
+                                <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                                    <polygon points="5,3 19,12 5,21"></polygon>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                     <div id="values-grid" class="grid grid-3">
                         <div class="empty-state">
@@ -2637,13 +2739,20 @@ WEB_UI = '''
                                 <option value="invert">Invert</option>
                             </select>
                         </div>
-                        <div class="form-group" style="display: flex; align-items: flex-end;">
+                        <div class="form-group" style="display: flex; align-items: flex-end; gap: 8px;">
                             <button class="btn btn-primary" onclick="refreshLivePreview()">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
                                     <polyline points="23 4 23 10 17 10"></polyline>
                                     <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
                                 </svg>
                                 Refresh
+                            </button>
+                            <button class="btn btn-secondary" onclick="editSelectedCamera()" title="Edit camera settings">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                </svg>
+                                Edit
                             </button>
                         </div>
                     </div>
@@ -2811,6 +2920,7 @@ WEB_UI = '''
                             </optgroup>
                             <optgroup label="Cloud OCR Services">
                                 <option value="google-vision">Google Cloud Vision</option>
+                                <option value="google-docai">Google Document AI</option>
                                 <option value="azure-ocr">Azure Computer Vision</option>
                                 <option value="aws-textract">AWS Textract</option>
                             </optgroup>
@@ -3036,14 +3146,50 @@ WEB_UI = '''
         let previewImage = null;
         let imageScale = 1;
         let zoomLevel = 1;
+        let liveUpdateInterval = null;
+        let isLivePaused = false;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             loadData();
-            setInterval(loadValues, 5000);
+            startLiveUpdates();
             setupCanvas();
             setupZoomWheel();
         });
+
+        function startLiveUpdates() {
+            if (liveUpdateInterval) clearInterval(liveUpdateInterval);
+            liveUpdateInterval = setInterval(loadValues, 5000);
+        }
+
+        function stopLiveUpdates() {
+            if (liveUpdateInterval) {
+                clearInterval(liveUpdateInterval);
+                liveUpdateInterval = null;
+            }
+        }
+
+        function toggleLiveUpdates() {
+            isLivePaused = !isLivePaused;
+            const badge = document.getElementById('live-badge');
+            const pauseBtn = document.getElementById('pause-btn');
+            const resumeBtn = document.getElementById('resume-btn');
+
+            if (isLivePaused) {
+                stopLiveUpdates();
+                badge.textContent = 'PAUSED';
+                badge.classList.add('paused');
+                pauseBtn.style.display = 'none';
+                resumeBtn.style.display = 'inline-flex';
+            } else {
+                startLiveUpdates();
+                loadValues(); // Refresh immediately
+                badge.textContent = 'LIVE';
+                badge.classList.remove('paused');
+                pauseBtn.style.display = 'inline-flex';
+                resumeBtn.style.display = 'none';
+            }
+        }
 
         // Zoom & PTZ Functions
         function setupZoomWheel() {
@@ -3222,7 +3368,7 @@ WEB_UI = '''
 
             let tableHtml = '';
             if (history.length > 0) {
-                const rows = history.slice().reverse().map(entry => {
+                const rows = history.slice().reverse().map((entry, index) => {
                     const time = new Date(entry.timestamp * 1000).toLocaleString();
                     const confidence = entry.confidence || 0;
                     const isLowConfidence = confidence < 80;
@@ -3239,6 +3385,7 @@ WEB_UI = '''
 
                     return `
                         <tr>
+                            <td class="order-cell">${index + 1}</td>
                             <td>${time}</td>
                             <td class="value-cell">${valueDisplay}</td>
                             <td>${confidenceDisplay}</td>
@@ -3251,6 +3398,7 @@ WEB_UI = '''
                     <table class="history-table">
                         <thead>
                             <tr>
+                                <th class="order-header">#</th>
                                 <th>Time</th>
                                 <th class="value-header">Value</th>
                                 <th>Confidence</th>
@@ -3677,6 +3825,17 @@ WEB_UI = '''
                 select.value = cameraNames[0];
                 loadLivePreview();
             }
+        }
+
+        function editSelectedCamera() {
+            const select = document.getElementById('live-camera-select');
+            const cameraName = select.value;
+            if (!cameraName) {
+                toast('Please select a camera first', 'error');
+                return;
+            }
+            // Open edit dialog for the selected camera
+            editCamera(cameraName);
         }
 
         function populateTemplateSelect() {
@@ -4589,6 +4748,7 @@ WEB_UI = '''
             'ollama': 'Default: llava (requires vision model)',
             'custom': 'Enter model name from your provider',
             'google-vision': 'Uses TEXT_DETECTION (no model needed)',
+            'google-docai': 'Requires processor path in URL field',
             'azure-ocr': 'Uses Read API v3.2 (no model needed)',
             'aws-textract': 'Uses detect-document-text (no model needed)'
         };
@@ -4628,7 +4788,7 @@ WEB_UI = '''
             const descriptionCheckbox = document.getElementById('ai-enable-description').parentElement;
             const testBtn = document.getElementById('test-ai-btn');
 
-            const cloudOcrProviders = ['google-vision', 'azure-ocr', 'aws-textract'];
+            const cloudOcrProviders = ['google-vision', 'google-docai', 'azure-ocr', 'aws-textract'];
             const isCloudOcr = cloudOcrProviders.includes(provider);
 
             if (provider === 'none') {
@@ -4639,7 +4799,7 @@ WEB_UI = '''
                 testBtn.style.display = 'inline-flex';
 
                 // Show/hide URL field
-                const needsUrl = provider === 'ollama' || provider === 'custom' || provider === 'azure-ocr';
+                const needsUrl = provider === 'ollama' || provider === 'custom' || provider === 'azure-ocr' || provider === 'google-docai';
                 urlGroup.style.display = needsUrl ? 'block' : 'none';
 
                 // Update URL hint based on provider
@@ -4652,6 +4812,9 @@ WEB_UI = '''
                 } else if (provider === 'azure-ocr') {
                     urlLabel.textContent = 'Endpoint URL';
                     urlHint.textContent = 'Azure endpoint (e.g., https://westus.api.cognitive.microsoft.com)';
+                } else if (provider === 'google-docai') {
+                    urlLabel.textContent = 'Processor Path';
+                    urlHint.textContent = 'Format: projects/PROJECT_ID/locations/LOCATION/processors/PROCESSOR_ID';
                 }
 
                 // Show/hide region field for AWS

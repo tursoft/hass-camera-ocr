@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.13] - 2026
+
+### Added
+- Order number column (#) in value history table
+- Pause/Resume buttons for live value updates on dashboard
+- Edit camera button in Live Preview section
+- Google Document AI as cloud OCR provider
+
+### Improved
+- PTZ controls now try multiple profile tokens and endpoints for better compatibility
+
 ## [1.2.12] - 2026
 
 ### Added
