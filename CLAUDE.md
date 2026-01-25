@@ -125,12 +125,22 @@ git push
    - `component-diagram.mermaid` - Component interactions
    - Update these diagrams when architecture changes
 
-2. **Screen Mockups** (`docs/mockups/`):
+2. **Generate High-Definition PNG files from Mermaid diagrams:**
+   ```bash
+   cd docs/diagrams
+   npx -y @mermaid-js/mermaid-cli -i architecture.mermaid -o architecture.png -b transparent -s 3
+   npx -y @mermaid-js/mermaid-cli -i data-flow.mermaid -o data-flow.png -b transparent -s 3
+   npx -y @mermaid-js/mermaid-cli -i component-diagram.mermaid -o component-diagram.png -b transparent -s 3
+   ```
+   - `-s 3` flag generates high-definition images (3x scale)
+   - `-b transparent` makes background transparent
+
+3. **Screen Mockups** (`docs/mockups/`):
    - Update screenshots/mockups when UI changes
    - Document new UI features with annotated screenshots
    - Keep `docs/images/` folder updated with current screenshots
 
-3. **Documentation Files**:
+4. **Documentation Files**:
    - `README.md` - Main documentation
    - `hass_camera_ocr/DOCS.md` - Add-on specific docs
    - Update feature lists and configuration examples
