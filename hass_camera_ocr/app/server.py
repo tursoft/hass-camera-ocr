@@ -1450,12 +1450,52 @@ WEB_UI = '''
             border-radius: 8px;
             padding: 16px;
             display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .discovery-item-header {
+            display: flex;
             align-items: center;
             justify-content: space-between;
+            width: 100%;
         }
-
         .discovery-item-info h4 { font-size: 15px; margin-bottom: 4px; }
         .discovery-item-info p { font-size: 13px; color: var(--text-3); }
+        .discovery-item-preview {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: var(--bg);
+            border-radius: 6px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        .discovery-item-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .discovery-item-preview .preview-placeholder {
+            color: var(--text-3);
+            font-size: 12px;
+            text-align: center;
+        }
+        .discovery-item-preview .preview-error {
+            color: var(--error);
+            font-size: 11px;
+            text-align: center;
+            padding: 8px;
+        }
+        .discovery-item-actions {
+            display: flex;
+            gap: 8px;
+            width: 100%;
+        }
+        .discovery-item-actions .btn {
+            flex: 1;
+        }
 
         /* Template List */
         .template-item {
@@ -3137,17 +3177,43 @@ WEB_UI = '''
                         </div>
                     `;
                 } else {
-                    list.innerHTML = discovered.map(cam => `
-                        <div class="discovery-item">
-                            <div class="discovery-item-info">
-                                <h4>${cam.name || cam.ip}</h4>
-                                <p>${cam.manufacturer ? cam.manufacturer + ' • ' : ''}${cam.ip}:${cam.port}</p>
+                    list.innerHTML = discovered.map((cam, idx) => `
+                        <div class="discovery-item" id="discovery-${idx}">
+                            <div class="discovery-item-header">
+                                <div class="discovery-item-info">
+                                    <h4>${cam.name || cam.ip}</h4>
+                                    <p>${cam.manufacturer ? cam.manufacturer + ' • ' : ''}${cam.ip}:${cam.port}</p>
+                                </div>
                             </div>
-                            <button class="btn btn-primary btn-sm" onclick="addDiscoveredCamera('${cam.ip}', '${cam.stream_url}', '${cam.manufacturer}')">
-                                Add
-                            </button>
+                            <div class="discovery-item-preview" id="discovery-preview-${idx}">
+                                <div class="preview-placeholder">
+                                    <div class="loading"></div>
+                                    <p style="margin-top: 8px;">Loading preview...</p>
+                                </div>
+                            </div>
+                            <div class="discovery-item-actions">
+                                <button class="btn btn-secondary btn-sm" onclick="previewDiscoveredCamera(${idx}, '${cam.ip}', ${cam.port}, '${cam.stream_url}')">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                        <circle cx="12" cy="12" r="3"></circle>
+                                    </svg>
+                                    Preview
+                                </button>
+                                <button class="btn btn-primary btn-sm" onclick="addDiscoveredCamera('${cam.ip}', ${cam.port}, '${cam.stream_url}', '${cam.manufacturer || ''}', '${cam.name || ''}')">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                                    </svg>
+                                    Add
+                                </button>
+                            </div>
                         </div>
                     `).join('');
+
+                    // Auto-load previews for discovered cameras
+                    discovered.forEach((cam, idx) => {
+                        loadDiscoveryPreview(idx, cam.ip, cam.port, cam.stream_url);
+                    });
                 }
             } catch (e) {
                 list.innerHTML = '<div class="empty-state"><p style="color: var(--error);">Discovery failed</p></div>';
@@ -3163,11 +3229,63 @@ WEB_UI = '''
             `;
         }
 
-        function addDiscoveredCamera(ip, streamUrl, manufacturer) {
-            document.getElementById('camera-name').value = `Camera ${ip}`;
-            document.getElementById('camera-url').value = streamUrl.replace('{user}', 'admin').replace('{pass}', 'password');
+        async function loadDiscoveryPreview(idx, ip, port, streamUrl) {
+            const previewEl = document.getElementById(`discovery-preview-${idx}`);
+            if (!previewEl) return;
+
+            try {
+                // Try to capture a frame using the test endpoint
+                const testUrl = streamUrl.replace('{user}', 'admin').replace('{pass}', 'admin');
+                const res = await fetch('api/test-capture', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: testUrl, username: '', password: '' })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.frame) {
+                        previewEl.innerHTML = `<img src="data:image/png;base64,${data.frame}" alt="Preview">`;
+                        return;
+                    }
+                }
+                previewEl.innerHTML = '<div class="preview-error">Preview unavailable<br><small>Add camera and configure credentials to view</small></div>';
+            } catch (e) {
+                previewEl.innerHTML = '<div class="preview-error">Preview unavailable<br><small>Add camera and configure credentials to view</small></div>';
+            }
+        }
+
+        function previewDiscoveredCamera(idx, ip, port, streamUrl) {
+            const previewEl = document.getElementById(`discovery-preview-${idx}`);
+            if (!previewEl) return;
+
+            previewEl.innerHTML = '<div class="preview-placeholder"><div class="loading"></div><p style="margin-top: 8px;">Loading preview...</p></div>';
+            loadDiscoveryPreview(idx, ip, port, streamUrl);
+        }
+
+        function addDiscoveredCamera(ip, port, streamUrl, manufacturer, name) {
+            // Open the modal first
             openAddCameraModal();
             document.getElementById('camera-modal-title').textContent = 'Add Discovered Camera';
+
+            // Set camera name
+            const cameraName = name || (manufacturer ? `${manufacturer} ${ip}` : `Camera ${ip}`);
+            document.getElementById('camera-name').value = cameraName;
+
+            // Set the full URL with placeholder credentials
+            const fullUrl = streamUrl.replace('{user}', 'admin').replace('{pass}', 'admin');
+            document.getElementById('camera-url').value = fullUrl;
+
+            // Parse URL to populate builder fields
+            parseUrlToFields();
+
+            // Clear password since it's just a placeholder
+            document.getElementById('camera-password').value = '';
+
+            // Set default port if not in URL
+            if (!document.getElementById('camera-port').value) {
+                document.getElementById('camera-port').value = port || '554';
+            }
         }
 
         // Utilities
@@ -3379,6 +3497,39 @@ def test_extraction():
 
     result = processor.extract_from_frame(frame, roi, preprocessing, template_name)
     return jsonify(result)
+
+
+@app.route('/api/test-capture', methods=['POST'])
+def test_capture():
+    """Test capture from a URL (for discovery preview)."""
+    data = request.get_json()
+    url = data.get('url', '')
+    username = data.get('username', '')
+    password = data.get('password', '')
+
+    if not url:
+        return jsonify({'success': False, 'error': 'URL is required'}), 400
+
+    frame, error = processor.capture_frame_from_url(url, username, password)
+    if error:
+        return jsonify({'success': False, 'error': error})
+
+    # Resize for thumbnail
+    h, w = frame.shape[:2]
+    max_size = 400
+    if w > max_size or h > max_size:
+        scale = max_size / max(w, h)
+        frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+
+    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    frame_b64 = base64.b64encode(buffer).decode('utf-8')
+
+    return jsonify({
+        'success': True,
+        'frame': frame_b64,
+        'width': frame.shape[1],
+        'height': frame.shape[0]
+    })
 
 
 @app.route('/api/templates', methods=['GET'])
