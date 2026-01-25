@@ -3013,26 +3013,29 @@ def train_ocr(camera_name):
                         numbers = re.findall(r'[-+]?\d*\.?\d+', text)
                         ocr_value = numbers[0] if numbers else ''
 
-                        # Check if it matches expected
-                        match = ocr_value == expected_value
+                        # Check if it matches expected (flexible numeric comparison)
+                        match = False
+                        if ocr_value and expected_value:
+                            try:
+                                # Compare as floats to handle "72" vs "72.0" etc
+                                match = abs(float(ocr_value) - float(expected_value)) < 0.01
+                            except ValueError:
+                                # Fall back to string comparison
+                                match = ocr_value.strip() == expected_value.strip()
 
                         roi_results['tests'].append({
                             'preprocessing': preproc,
                             'psm': psm,
                             'result': ocr_value,
+                            'raw_text': text,
                             'match': match
                         })
 
                         if match:
-                            # Count matches for this config across all validated ROIs
-                            config_key = f'{preproc}_{psm}'
-                            current_count = sum(1 for r in results for t in r.get('tests', [])
-                                              if t.get('match') and f"{t['preprocessing']}_{t['psm']}" == config_key)
-                            if current_count + 1 > best_config['accuracy']:
-                                best_config = {'preprocessing': preproc, 'psm': psm, 'accuracy': current_count + 1}
+                            logger.info(f"Training: MATCH found! preproc={preproc}, psm={psm}, ocr='{ocr_value}', expected='{expected_value}'")
 
                     except Exception as e:
-                        pass
+                        logger.error(f"Training: Error testing preproc={preproc}, psm={psm}: {e}")
 
             results.append(roi_results)
 
