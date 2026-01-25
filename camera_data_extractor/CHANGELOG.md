@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1] - 2026
+
+### Fixed
+- Fix OpenCV GStreamer binding error on Alpine Linux
+- Fix s6-test not found error in service finish script
+- Use pip opencv-python-headless for better compatibility
+
 ## [1.0.0] - 2026
 
 ### Added

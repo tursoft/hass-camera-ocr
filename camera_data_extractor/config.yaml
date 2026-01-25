@@ -1,6 +1,6 @@
 name: Camera Data Extractor
 description: Extract numeric values from IP camera video streams using OCR
-version: 1.0.0
+version: 1.0.1
 slug: camera_data_extractor
 url: https://github.com/tursoft/ha-camera-data-extractor
 arch:
