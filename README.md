@@ -16,6 +16,23 @@ Extract numeric values from IP camera video streams using OCR (Optical Character
 - **Home Assistant Integration**: Exposes values as sensor entities for automations and monitoring
 - **Two Installation Methods**: Available as both a Custom Integration and an Add-on
 
+## Screenshots
+
+### Main Dashboard
+View all configured cameras and their extracted values at a glance.
+
+![Main Dashboard](docs/images/dashboard.png)
+
+### ROI Selection
+Easily select the region of interest by clicking and dragging on the camera frame.
+
+![ROI Selection](docs/images/roi-selection.png)
+
+### Camera Configuration
+Configure camera settings, preprocessing options, and scan intervals.
+
+![Camera Configuration](docs/images/camera-config.png)
+
 ## Installation
 
 Choose one of the following installation methods based on your needs:
