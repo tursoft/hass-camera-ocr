@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Data Extractor</title>
+    <style>
+        :root {
+            --primary-color: #03a9f4;
+            --primary-dark: #0288d1;
+            --accent-color: #ff9800;
+            --bg-color: #fafafa;
+            --card-bg: #ffffff;
+            --text-color: #212121;
+            --text-secondary: #757575;
+            --border-color: #e0e0e0;
+            --success-color: #4caf50;
+            --error-color: #f44336;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-color: #1c1c1c;
+                --card-bg: #2d2d2d;
+                --text-color: #e0e0e0;
+                --text-secondary: #a0a0a0;
+                --border-color: #404040;
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        h1 svg {
+            width: 32px;
+            height: 32px;
+            fill: var(--primary-color);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-secondary {
+            background: var(--card-bg);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border-color);
+        }
+
+        .btn-success {
+            background: var(--success-color);
+            color: white;
+        }
+
+        .btn-danger {
+            background: var(--error-color);
+            color: white;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 500;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-body {
+            padding: 20px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        /* Camera Selection */
+        .camera-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .camera-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .camera-item:hover {
+            border-color: var(--primary-color);
+        }
+
+        .camera-item.selected {
+            border-color: var(--primary-color);
+            background: rgba(3, 169, 244, 0.1);
+        }
+
+        .camera-item-info {
+            flex: 1;
+        }
+
+        .camera-item-name {
+            font-weight: 500;
+        }
+
+        .camera-item-url {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* Video Preview */
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .video-container img {
+            width: 100%;
+            display: block;
+        }
+
+        .video-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        .roi-selection {
+            position: absolute;
+            border: 2px solid var(--accent-color);
+            background: rgba(255, 152, 0, 0.2);
+            pointer-events: none;
+        }
+
+        .roi-saved {
+            position: absolute;
+            border: 2px solid var(--success-color);
+            background: rgba(76, 175, 80, 0.2);
+            pointer-events: none;
+        }
+
+        /* ROI Controls */
+        .roi-controls {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .form-group label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .form-group input, .form-group select {
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--card-bg);
+            color: var(--text-color);
+            font-size: 14px;
+        }
+
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+
+        /* Templates */
+        .template-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .template-item {
+            position: relative;
+            width: 120px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        .template-item:hover {
+            border-color: var(--primary-color);
+        }
+
+        .template-item.selected {
+            border-color: var(--primary-color);
+            border-width: 2px;
+        }
+
+        .template-item img {
+            width: 100%;
+            height: 80px;
+            object-fit: cover;
+        }
+
+        .template-item-name {
+            padding: 8px;
+            font-size: 12px;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .template-delete {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 24px;
+            height: 24px;
+            background: var(--error-color);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            display: none;
+        }
+
+        .template-item:hover .template-delete {
+            display: block;
+        }
+
+        /* Status Messages */
+        .status {
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-bottom: 16px;
+        }
+
+        .status-info {
+            background: rgba(3, 169, 244, 0.1);
+            color: var(--primary-color);
+        }
+
+        .status-success {
+            background: rgba(76, 175, 80, 0.1);
+            color: var(--success-color);
+        }
+
+        .status-error {
+            background: rgba(244, 67, 54, 0.1);
+            color: var(--error-color);
+        }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Discovery */
+        .discovery-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+
+        .discovery-item-info {
+            flex: 1;
+        }
+
+        .discovery-streams {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 12px 24px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            background: rgba(0,0,0,0.05);
+        }
+
+        .tab.active {
+            border-bottom-color: var(--primary-color);
+            color: var(--primary-color);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* OCR Preview */
+        .ocr-result {
+            font-size: 48px;
+            font-weight: bold;
+            color: var(--primary-color);
+            text-align: center;
+            padding: 20px;
+        }
+
+        .ocr-confidence {
+            font-size: 14px;
+            color: var(--text-secondary);
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                </svg>
+                Camera Data Extractor
+            </h1>
+            <button class="btn btn-primary" onclick="refreshAll()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                </svg>
+                Refresh
+            </button>
+        </header>
+
+        <div class="tabs">
+            <div class="tab active" data-tab="cameras">Cameras</div>
+            <div class="tab" data-tab="roi">ROI Selection</div>
+            <div class="tab" data-tab="templates">Templates</div>
+            <div class="tab" data-tab="discovery">Discovery</div>
+        </div>
+
+        <div id="status-container"></div>
+
+        <!-- Cameras Tab -->
+        <div class="tab-content active" id="cameras-tab">
+            <div class="grid">
+                <div class="card">
+                    <div class="card-header">
+                        Configured Cameras
+                    </div>
+                    <div class="card-body">
+                        <div id="camera-list" class="camera-list">
+                            <div class="loading"><div class="spinner"></div></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        Live Preview
+                        <button class="btn btn-secondary" onclick="captureFrame()">Capture Frame</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="video-container" id="preview-container">
+                            <img id="preview-image" src="" alt="No camera selected">
+                        </div>
+                        <div id="frame-info" style="margin-top: 12px; font-size: 12px; color: var(--text-secondary);"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ROI Selection Tab -->
+        <div class="tab-content" id="roi-tab">
+            <div class="card">
+                <div class="card-header">
+                    Select Region of Interest
+                    <div>
+                        <button class="btn btn-secondary" onclick="captureFrame()">Refresh Frame</button>
+                        <button class="btn btn-success" onclick="saveTemplate()">Save as Template</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p style="margin-bottom: 16px; color: var(--text-secondary);">
+                        Click and drag on the image to select the region containing the numeric value to extract.
+                    </p>
+                    <div class="video-container" id="roi-container" style="max-width: 800px;">
+                        <img id="roi-image" src="" alt="Capture a frame first">
+                        <div class="video-overlay" id="roi-overlay"></div>
+                        <div class="roi-selection" id="roi-selection" style="display: none;"></div>
+                    </div>
+                    <div class="roi-controls">
+                        <div class="form-group">
+                            <label>X Position</label>
+                            <input type="number" id="roi-x" value="0" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Y Position</label>
+                            <input type="number" id="roi-y" value="0" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Width</label>
+                            <input type="number" id="roi-width" value="0" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Height</label>
+                            <input type="number" id="roi-height" value="0" min="0">
+                        </div>
+                    </div>
+                    <div style="margin-top: 16px;">
+                        <div class="form-group" style="max-width: 300px;">
+                            <label>Template Name</label>
+                            <input type="text" id="template-name" placeholder="e.g., boiler_temperature">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    OCR Test Result
+                    <button class="btn btn-primary" onclick="testOCR()">Test OCR</button>
+                </div>
+                <div class="card-body">
+                    <div id="ocr-result" class="ocr-result">--</div>
+                    <div id="ocr-confidence" class="ocr-confidence"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Templates Tab -->
+        <div class="tab-content" id="templates-tab">
+            <div class="card">
+                <div class="card-header">
+                    Saved Templates
+                    <button class="btn btn-primary" onclick="testTemplateMatch()">Test Match</button>
+                </div>
+                <div class="card-body">
+                    <div id="template-list" class="template-list">
+                        <div class="loading"><div class="spinner"></div></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">Match Result</div>
+                <div class="card-body">
+                    <div class="video-container" style="max-width: 800px;">
+                        <img id="match-result-image" src="" alt="Run a template match test">
+                    </div>
+                    <div id="match-info" style="margin-top: 12px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Discovery Tab -->
+        <div class="tab-content" id="discovery-tab">
+            <div class="card">
+                <div class="card-header">
+                    Discover Cameras on Network
+                    <button class="btn btn-primary" onclick="discoverCameras()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+                        </svg>
+                        Scan Network
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div id="discovery-list">
+                        <p style="color: var(--text-secondary);">
+                            Click "Scan Network" to discover ONVIF-compatible cameras on your local network.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let selectedCameraId = null;
+        let selectedTemplate = null;
+        let currentFrame = null;
+        let frameWidth = 0;
+        let frameHeight = 0;
+
+        // ROI selection state
+        let isSelecting = false;
+        let selectionStart = { x: 0, y: 0 };
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.tab + '-tab').classList.add('active');
+            });
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadCameras();
+            loadTemplates();
+            setupROISelection();
+        });
+
+        function showStatus(message, type = 'info') {
+            const container = document.getElementById('status-container');
+            container.innerHTML = `<div class="status status-${type}">${message}</div>`;
+            setTimeout(() => container.innerHTML = '', 5000);
+        }
+
+        async function apiCall(url, options = {}) {
+            const response = await fetch(url, {
+                ...options,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...options.headers,
+                },
+            });
+            return response.json();
+        }
+
+        async function loadCameras() {
+            try {
+                const data = await apiCall('/api/camera_data_extractor/entries');
+                const list = document.getElementById('camera-list');
+
+                if (data.entries && data.entries.length > 0) {
+                    list.innerHTML = data.entries.map(entry => `
+                        <div class="camera-item ${selectedCameraId === entry.entry_id ? 'selected' : ''}"
+                             onclick="selectCamera('${entry.entry_id}')">
+                            <div class="camera-item-info">
+                                <div class="camera-item-name">${entry.camera_name} - ${entry.value_name}</div>
+                                <div class="camera-item-url">${entry.stream_url}</div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = '<p style="color: var(--text-secondary);">No cameras configured. Add a camera through Home Assistant Settings > Integrations.</p>';
+                }
+            } catch (error) {
+                document.getElementById('camera-list').innerHTML = `<p class="status status-error">Error loading cameras: ${error.message}</p>`;
+            }
+        }
+
+        function selectCamera(entryId) {
+            selectedCameraId = entryId;
+            document.querySelectorAll('.camera-item').forEach(item => {
+                item.classList.toggle('selected', item.onclick.toString().includes(entryId));
+            });
+            captureFrame();
+        }
+
+        async function captureFrame() {
+            if (!selectedCameraId) {
+                showStatus('Please select a camera first', 'error');
+                return;
+            }
+
+            try {
+                showStatus('Capturing frame...', 'info');
+                const data = await apiCall(`/api/camera_data_extractor/capture/${selectedCameraId}`);
+
+                if (data.success) {
+                    currentFrame = data.frame;
+                    frameWidth = data.width;
+                    frameHeight = data.height;
+
+                    const previewImg = document.getElementById('preview-image');
+                    const roiImg = document.getElementById('roi-image');
+
+                    previewImg.src = `data:image/png;base64,${data.frame}`;
+                    roiImg.src = `data:image/png;base64,${data.frame}`;
+
+                    document.getElementById('frame-info').textContent =
+                        `Frame: ${data.width}x${data.height} | Captured: ${new Date(data.timestamp * 1000).toLocaleTimeString()}`;
+
+                    showStatus('Frame captured successfully', 'success');
+                } else {
+                    showStatus(data.error || 'Failed to capture frame', 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        function setupROISelection() {
+            const overlay = document.getElementById('roi-overlay');
+            const selection = document.getElementById('roi-selection');
+            const image = document.getElementById('roi-image');
+
+            overlay.addEventListener('mousedown', (e) => {
+                if (!currentFrame) return;
+
+                isSelecting = true;
+                const rect = overlay.getBoundingClientRect();
+                selectionStart = {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+                selection.style.left = selectionStart.x + 'px';
+                selection.style.top = selectionStart.y + 'px';
+                selection.style.width = '0';
+                selection.style.height = '0';
+                selection.style.display = 'block';
+            });
+
+            overlay.addEventListener('mousemove', (e) => {
+                if (!isSelecting) return;
+
+                const rect = overlay.getBoundingClientRect();
+                const currentX = e.clientX - rect.left;
+                const currentY = e.clientY - rect.top;
+
+                const x = Math.min(selectionStart.x, currentX);
+                const y = Math.min(selectionStart.y, currentY);
+                const width = Math.abs(currentX - selectionStart.x);
+                const height = Math.abs(currentY - selectionStart.y);
+
+                selection.style.left = x + 'px';
+                selection.style.top = y + 'px';
+                selection.style.width = width + 'px';
+                selection.style.height = height + 'px';
+            });
+
+            overlay.addEventListener('mouseup', (e) => {
+                if (!isSelecting) return;
+                isSelecting = false;
+
+                // Convert screen coordinates to image coordinates
+                const rect = overlay.getBoundingClientRect();
+                const scaleX = frameWidth / rect.width;
+                const scaleY = frameHeight / rect.height;
+
+                const selRect = selection.getBoundingClientRect();
+                const overlayRect = overlay.getBoundingClientRect();
+
+                const x = Math.round((selRect.left - overlayRect.left) * scaleX);
+                const y = Math.round((selRect.top - overlayRect.top) * scaleY);
+                const width = Math.round(selRect.width * scaleX);
+                const height = Math.round(selRect.height * scaleY);
+
+                document.getElementById('roi-x').value = x;
+                document.getElementById('roi-y').value = y;
+                document.getElementById('roi-width').value = width;
+                document.getElementById('roi-height').value = height;
+            });
+
+            // Update selection when inputs change
+            ['roi-x', 'roi-y', 'roi-width', 'roi-height'].forEach(id => {
+                document.getElementById(id).addEventListener('change', updateSelectionFromInputs);
+            });
+        }
+
+        function updateSelectionFromInputs() {
+            if (!currentFrame) return;
+
+            const overlay = document.getElementById('roi-overlay');
+            const selection = document.getElementById('roi-selection');
+            const rect = overlay.getBoundingClientRect();
+
+            const scaleX = rect.width / frameWidth;
+            const scaleY = rect.height / frameHeight;
+
+            const x = parseInt(document.getElementById('roi-x').value) * scaleX;
+            const y = parseInt(document.getElementById('roi-y').value) * scaleY;
+            const width = parseInt(document.getElementById('roi-width').value) * scaleX;
+            const height = parseInt(document.getElementById('roi-height').value) * scaleY;
+
+            selection.style.left = x + 'px';
+            selection.style.top = y + 'px';
+            selection.style.width = width + 'px';
+            selection.style.height = height + 'px';
+            selection.style.display = 'block';
+        }
+
+        async function saveTemplate() {
+            const name = document.getElementById('template-name').value.trim();
+            if (!name) {
+                showStatus('Please enter a template name', 'error');
+                return;
+            }
+
+            if (!selectedCameraId) {
+                showStatus('Please select a camera first', 'error');
+                return;
+            }
+
+            const roi = {
+                x: parseInt(document.getElementById('roi-x').value),
+                y: parseInt(document.getElementById('roi-y').value),
+                width: parseInt(document.getElementById('roi-width').value),
+                height: parseInt(document.getElementById('roi-height').value),
+            };
+
+            if (roi.width <= 0 || roi.height <= 0) {
+                showStatus('Please select a region first', 'error');
+                return;
+            }
+
+            try {
+                showStatus('Saving template...', 'info');
+                const data = await apiCall('/api/camera_data_extractor/template/save', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        entry_id: selectedCameraId,
+                        name: name,
+                        roi: roi,
+                    }),
+                });
+
+                if (data.success) {
+                    showStatus('Template saved successfully', 'success');
+                    loadTemplates();
+                } else {
+                    showStatus(data.error || 'Failed to save template', 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadTemplates() {
+            try {
+                const data = await apiCall('/api/camera_data_extractor/templates');
+                const list = document.getElementById('template-list');
+
+                if (data.templates && data.templates.length > 0) {
+                    list.innerHTML = '';
+                    for (const name of data.templates) {
+                        const preview = await apiCall(`/api/camera_data_extractor/template/preview/${encodeURIComponent(name)}`);
+                        list.innerHTML += `
+                            <div class="template-item ${selectedTemplate === name ? 'selected' : ''}"
+                                 onclick="selectTemplate('${name}')">
+                                <img src="${preview.preview ? 'data:image/png;base64,' + preview.preview : ''}" alt="${name}">
+                                <div class="template-item-name">${name}</div>
+                                <button class="template-delete" onclick="event.stopPropagation(); deleteTemplate('${name}')">×</button>
+                            </div>
+                        `;
+                    }
+                } else {
+                    list.innerHTML = '<p style="color: var(--text-secondary);">No templates saved yet. Go to ROI Selection to create one.</p>';
+                }
+            } catch (error) {
+                document.getElementById('template-list').innerHTML = `<p class="status status-error">Error loading templates: ${error.message}</p>`;
+            }
+        }
+
+        function selectTemplate(name) {
+            selectedTemplate = name;
+            document.querySelectorAll('.template-item').forEach(item => {
+                item.classList.toggle('selected', item.querySelector('.template-item-name').textContent === name);
+            });
+        }
+
+        async function deleteTemplate(name) {
+            if (!confirm(`Delete template "${name}"?`)) return;
+
+            try {
+                const data = await apiCall(`/api/camera_data_extractor/template/delete/${encodeURIComponent(name)}`, {
+                    method: 'DELETE',
+                });
+
+                if (data.success) {
+                    showStatus('Template deleted', 'success');
+                    loadTemplates();
+                } else {
+                    showStatus(data.error || 'Failed to delete template', 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testTemplateMatch() {
+            if (!selectedTemplate) {
+                showStatus('Please select a template first', 'error');
+                return;
+            }
+
+            if (!selectedCameraId) {
+                showStatus('Please select a camera first', 'error');
+                return;
+            }
+
+            try {
+                showStatus('Testing template match...', 'info');
+                const data = await apiCall('/api/camera_data_extractor/find', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        entry_id: selectedCameraId,
+                        template_name: selectedTemplate,
+                    }),
+                });
+
+                document.getElementById('match-result-image').src = `data:image/png;base64,${data.frame}`;
+
+                if (data.found) {
+                    document.getElementById('match-info').innerHTML = `
+                        <div class="status status-success">
+                            <strong>Match found!</strong><br>
+                            Position: (${data.roi.x}, ${data.roi.y})<br>
+                            Size: ${data.roi.width} x ${data.roi.height}<br>
+                            Confidence: ${data.confidence.toFixed(1)}%<br>
+                            Rotation: ${data.angle.toFixed(1)}°
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('match-info').innerHTML = `
+                        <div class="status status-error">
+                            Template not found in current frame.<br>
+                            ${data.error || ''}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testOCR() {
+            showStatus('OCR testing requires the backend service. Configure through Home Assistant.', 'info');
+            document.getElementById('ocr-result').textContent = '--';
+            document.getElementById('ocr-confidence').textContent = 'Test using Home Assistant Developer Tools > Services';
+        }
+
+        async function discoverCameras() {
+            const list = document.getElementById('discovery-list');
+            list.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+            try {
+                showStatus('Scanning network for cameras... This may take a few seconds.', 'info');
+                const data = await apiCall('/api/camera_data_extractor/discover');
+
+                if (data.cameras && data.cameras.length > 0) {
+                    list.innerHTML = data.cameras.map(cam => `
+                        <div class="discovery-item">
+                            <div class="discovery-item-info">
+                                <strong>${cam.name}</strong>
+                                ${cam.manufacturer ? ` (${cam.manufacturer})` : ''}
+                                <br>
+                                <span style="color: var(--text-secondary);">${cam.ip}:${cam.port}</span>
+                                ${cam.streams ? `
+                                    <div class="discovery-streams">
+                                        Possible streams:<br>
+                                        ${cam.streams.slice(0, 3).map(s => `<code>${s}</code>`).join('<br>')}
+                                    </div>
+                                ` : ''}
+                            </div>
+                            <button class="btn btn-secondary" onclick="alert('Add this camera through Home Assistant Settings > Integrations > Add Integration > Camera Data Extractor')">
+                                Add
+                            </button>
+                        </div>
+                    `).join('');
+                    showStatus(`Found ${data.cameras.length} camera(s)`, 'success');
+                } else {
+                    list.innerHTML = '<p style="color: var(--text-secondary);">No cameras discovered. Make sure your cameras support ONVIF or try adding them manually.</p>';
+                    showStatus('No cameras found', 'info');
+                }
+            } catch (error) {
+                list.innerHTML = `<p class="status status-error">Discovery failed: ${error.message}</p>`;
+            }
+        }
+
+        function refreshAll() {
+            loadCameras();
+            loadTemplates();
+            if (selectedCameraId) {
+                captureFrame();
+            }
+        }
+    </script>
+</body>
+</html>

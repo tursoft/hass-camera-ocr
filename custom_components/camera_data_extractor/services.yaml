@@ -1,0 +1,80 @@
+capture_frame:
+  name: Capture Frame
+  description: Immediately capture a frame and update the sensor value.
+  fields:
+    entity_id:
+      name: Entity
+      description: The camera data extractor sensor entity to update.
+      required: true
+      selector:
+        entity:
+          integration: camera_data_extractor
+          domain: sensor
+
+update_roi:
+  name: Update ROI
+  description: Update the Region of Interest for value extraction.
+  fields:
+    entity_id:
+      name: Entity
+      description: The camera data extractor sensor entity to update.
+      required: true
+      selector:
+        entity:
+          integration: camera_data_extractor
+          domain: sensor
+    roi_x:
+      name: X Position
+      description: Horizontal position of the region's top-left corner.
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 4096
+          mode: box
+    roi_y:
+      name: Y Position
+      description: Vertical position of the region's top-left corner.
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 4096
+          mode: box
+    roi_width:
+      name: Width
+      description: Width of the region in pixels.
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 4096
+          mode: box
+    roi_height:
+      name: Height
+      description: Height of the region in pixels.
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 4096
+          mode: box
+
+use_template:
+  name: Use Template
+  description: Find and apply ROI from a saved template. Useful for cameras that move (PTZ).
+  fields:
+    entity_id:
+      name: Entity
+      description: The camera data extractor sensor entity to update.
+      required: true
+      selector:
+        entity:
+          integration: camera_data_extractor
+          domain: sensor
+    template_name:
+      name: Template Name
+      description: Name of the saved template to use for matching.
+      required: true
+      selector:
+        text:

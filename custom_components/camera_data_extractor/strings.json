@@ -1,0 +1,119 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Camera Connection",
+        "description": "Enter your camera's connection details. The stream URL can be RTSP (e.g., rtsp://192.168.1.100:554/stream1) or HTTP (e.g., http://192.168.1.100/video).",
+        "data": {
+          "camera_name": "Camera Name",
+          "stream_url": "Stream URL",
+          "username": "Username (optional)",
+          "password": "Password (optional)"
+        },
+        "data_description": {
+          "camera_name": "A friendly name for this camera",
+          "stream_url": "The RTSP or HTTP URL of the video stream",
+          "username": "Username for camera authentication",
+          "password": "Password for camera authentication"
+        }
+      },
+      "extraction": {
+        "title": "Value Extraction Settings",
+        "description": "Configure how the numeric value should be extracted from the camera image.",
+        "data": {
+          "value_name": "Value Name",
+          "unit_of_measurement": "Unit of Measurement",
+          "decimal_places": "Decimal Places",
+          "scan_interval": "Scan Interval (seconds)",
+          "preprocessing": "Image Preprocessing"
+        },
+        "data_description": {
+          "value_name": "Name for the extracted value (e.g., Temperature, Pressure)",
+          "unit_of_measurement": "Unit for the value (e.g., °C, bar, %)",
+          "decimal_places": "Number of decimal places to round to",
+          "scan_interval": "How often to capture and analyze frames",
+          "preprocessing": "Image preprocessing method for better OCR accuracy"
+        }
+      },
+      "roi": {
+        "title": "Region of Interest",
+        "description": "Define the area of the image containing the value to extract. Set all values to 0 to use the full frame. You can adjust these later using the update_roi service.",
+        "data": {
+          "roi_x": "X Position (pixels from left)",
+          "roi_y": "Y Position (pixels from top)",
+          "roi_width": "Width (pixels)",
+          "roi_height": "Height (pixels)"
+        },
+        "data_description": {
+          "roi_x": "Horizontal position of the region's top-left corner",
+          "roi_y": "Vertical position of the region's top-left corner",
+          "roi_width": "Width of the region (0 for full width)",
+          "roi_height": "Height of the region (0 for full height)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the camera stream. Please verify the URL and credentials.",
+      "invalid_url": "Invalid stream URL format.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This camera is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Camera Data Extractor Options",
+        "description": "Adjust the extraction settings for this camera.",
+        "data": {
+          "scan_interval": "Scan Interval (seconds)",
+          "roi_x": "ROI X Position",
+          "roi_y": "ROI Y Position",
+          "roi_width": "ROI Width",
+          "roi_height": "ROI Height",
+          "preprocessing": "Image Preprocessing",
+          "decimal_places": "Decimal Places"
+        }
+      }
+    }
+  },
+  "services": {
+    "capture_frame": {
+      "name": "Capture Frame",
+      "description": "Immediately capture a frame and update the sensor value.",
+      "fields": {
+        "entity_id": {
+          "name": "Entity",
+          "description": "The camera data extractor sensor entity to update."
+        }
+      }
+    },
+    "update_roi": {
+      "name": "Update ROI",
+      "description": "Update the Region of Interest for value extraction.",
+      "fields": {
+        "entity_id": {
+          "name": "Entity",
+          "description": "The camera data extractor sensor entity to update."
+        },
+        "roi_x": {
+          "name": "X Position",
+          "description": "Horizontal position of the region's top-left corner."
+        },
+        "roi_y": {
+          "name": "Y Position",
+          "description": "Vertical position of the region's top-left corner."
+        },
+        "roi_width": {
+          "name": "Width",
+          "description": "Width of the region in pixels."
+        },
+        "roi_height": {
+          "name": "Height",
+          "description": "Height of the region in pixels."
+        }
+      }
+    }
+  }
+}
