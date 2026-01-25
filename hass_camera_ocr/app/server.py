@@ -1151,23 +1151,67 @@ WEB_UI = '''
         .preview-frame {
             background: var(--bg-3);
             border-radius: 8px;
-            overflow: hidden;
+            overflow: auto;
             position: relative;
+            max-height: 600px;
+        }
+
+        .preview-wrapper {
+            position: relative;
+            display: inline-block;
+            transform-origin: top left;
         }
 
         .preview-frame img {
-            width: 100%;
-            height: auto;
             display: block;
+            max-width: none;
         }
 
         .preview-canvas {
             position: absolute;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
             cursor: crosshair;
+        }
+
+        .zoom-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 4px;
+            z-index: 10;
+            background: rgba(0,0,0,0.7);
+            border-radius: 6px;
+            padding: 4px;
+        }
+
+        .zoom-btn {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: var(--card-bg);
+            color: var(--text);
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .zoom-btn:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        .zoom-level {
+            color: white;
+            font-size: 12px;
+            padding: 0 8px;
+            display: flex;
+            align-items: center;
         }
 
         .preview-placeholder {
@@ -1517,8 +1561,18 @@ WEB_UI = '''
                                 </svg>
                                 <p>Select a camera and click Refresh to load preview</p>
                             </div>
-                            <img id="preview-image" style="display: none;" />
-                            <canvas id="preview-canvas" class="preview-canvas" style="display: none;"></canvas>
+                            <div class="zoom-controls" id="zoom-controls" style="display: none;">
+                                <button class="zoom-btn" onclick="zoomOut()" title="Zoom Out">−</button>
+                                <span class="zoom-level" id="zoom-level">100%</span>
+                                <button class="zoom-btn" onclick="zoomIn()" title="Zoom In">+</button>
+                                <button class="zoom-btn" onclick="resetZoom()" title="Reset Zoom">⟲</button>
+                                <button class="zoom-btn" onclick="rotateImage(-90)" title="Rotate Left">↺</button>
+                                <button class="zoom-btn" onclick="rotateImage(90)" title="Rotate Right">↻</button>
+                            </div>
+                            <div class="preview-wrapper" id="preview-wrapper">
+                                <img id="preview-image" style="display: none;" />
+                                <canvas id="preview-canvas" class="preview-canvas" style="display: none;"></canvas>
+                            </div>
                         </div>
 
                         <div class="preview-sidebar">
@@ -1759,13 +1813,96 @@ WEB_UI = '''
         let startX, startY;
         let previewImage = null;
         let imageScale = 1;
+        let zoomLevel = 1;
+        let rotationAngle = 0;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             loadData();
             setInterval(loadValues, 5000);
             setupCanvas();
+            setupZoomWheel();
         });
+
+        // Zoom & Rotation Functions
+        function setupZoomWheel() {
+            const frame = document.getElementById('preview-frame');
+            frame.addEventListener('wheel', (e) => {
+                if (!previewImage) return;
+                e.preventDefault();
+                if (e.deltaY < 0) {
+                    zoomIn();
+                } else {
+                    zoomOut();
+                }
+            }, { passive: false });
+        }
+
+        function zoomIn() {
+            if (zoomLevel < 4) {
+                zoomLevel = Math.min(4, zoomLevel + 0.25);
+                applyZoomRotation();
+            }
+        }
+
+        function zoomOut() {
+            if (zoomLevel > 0.25) {
+                zoomLevel = Math.max(0.25, zoomLevel - 0.25);
+                applyZoomRotation();
+            }
+        }
+
+        function resetZoom() {
+            zoomLevel = 1;
+            rotationAngle = 0;
+            applyZoomRotation();
+        }
+
+        function rotateImage(degrees) {
+            rotationAngle = (rotationAngle + degrees) % 360;
+            applyZoomRotation();
+        }
+
+        function applyZoomRotation() {
+            const wrapper = document.getElementById('preview-wrapper');
+            const img = document.getElementById('preview-image');
+            const canvas = document.getElementById('preview-canvas');
+
+            if (!previewImage) return;
+
+            // Apply zoom
+            const scaledWidth = previewImage.width * zoomLevel;
+            const scaledHeight = previewImage.height * zoomLevel;
+
+            img.style.width = scaledWidth + 'px';
+            img.style.height = scaledHeight + 'px';
+
+            // Apply rotation to wrapper
+            wrapper.style.transform = `rotate(${rotationAngle}deg)`;
+
+            // Adjust wrapper size for rotation
+            if (rotationAngle === 90 || rotationAngle === 270 || rotationAngle === -90 || rotationAngle === -270) {
+                wrapper.style.width = scaledHeight + 'px';
+                wrapper.style.height = scaledWidth + 'px';
+            } else {
+                wrapper.style.width = scaledWidth + 'px';
+                wrapper.style.height = scaledHeight + 'px';
+            }
+
+            // Update canvas
+            canvas.width = scaledWidth;
+            canvas.height = scaledHeight;
+            canvas.style.width = scaledWidth + 'px';
+            canvas.style.height = scaledHeight + 'px';
+
+            // Update scale factor for ROI calculations
+            imageScale = zoomLevel;
+
+            // Update zoom level display
+            document.getElementById('zoom-level').textContent = Math.round(zoomLevel * 100) + '%';
+
+            drawROI();
+        }
 
         // Navigation
         document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -2251,6 +2388,10 @@ WEB_UI = '''
 
                 img.onload = () => {
                     previewImage = { width: data.width, height: data.height };
+                    // Reset zoom and rotation for new image
+                    zoomLevel = 1;
+                    rotationAngle = 0;
+                    document.getElementById('preview-wrapper').style.transform = '';
                     setupCanvasSize();
                     drawROI();
                 };
@@ -2261,28 +2402,45 @@ WEB_UI = '''
         }
 
         // Canvas & ROI
+        function getMousePos(canvas, e) {
+            const rect = canvas.getBoundingClientRect();
+            // Account for CSS scaling by comparing canvas internal size to displayed size
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+
+            // Get position relative to canvas, accounting for any CSS transforms
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+
+            // Convert to original image coordinates
+            return {
+                x: x / zoomLevel,
+                y: y / zoomLevel
+            };
+        }
+
         function setupCanvas() {
             const canvas = document.getElementById('preview-canvas');
 
             canvas.addEventListener('mousedown', (e) => {
                 if (!previewImage) return;
+                e.preventDefault();
                 isDrawing = true;
-                const rect = canvas.getBoundingClientRect();
-                startX = (e.clientX - rect.left) / imageScale;
-                startY = (e.clientY - rect.top) / imageScale;
+                const pos = getMousePos(canvas, e);
+                startX = pos.x;
+                startY = pos.y;
             });
 
             canvas.addEventListener('mousemove', (e) => {
                 if (!isDrawing || !previewImage) return;
-                const rect = canvas.getBoundingClientRect();
-                const x = (e.clientX - rect.left) / imageScale;
-                const y = (e.clientY - rect.top) / imageScale;
+                e.preventDefault();
+                const pos = getMousePos(canvas, e);
 
                 currentROI = {
-                    x: Math.round(Math.min(startX, x)),
-                    y: Math.round(Math.min(startY, y)),
-                    width: Math.round(Math.abs(x - startX)),
-                    height: Math.round(Math.abs(y - startY))
+                    x: Math.round(Math.min(startX, pos.x)),
+                    y: Math.round(Math.min(startY, pos.y)),
+                    width: Math.round(Math.abs(pos.x - startX)),
+                    height: Math.round(Math.abs(pos.y - startY))
                 };
 
                 updateROIDisplay();
@@ -2302,11 +2460,25 @@ WEB_UI = '''
             const canvas = document.getElementById('preview-canvas');
             const img = document.getElementById('preview-image');
 
-            canvas.width = img.clientWidth;
-            canvas.height = img.clientHeight;
+            // Set canvas to match zoomed image size
+            const width = previewImage.width * zoomLevel;
+            const height = previewImage.height * zoomLevel;
+
+            canvas.width = width;
+            canvas.height = height;
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
             canvas.style.display = 'block';
 
-            imageScale = img.clientWidth / previewImage.width;
+            // Set image size
+            img.style.width = width + 'px';
+            img.style.height = height + 'px';
+
+            // Show zoom controls
+            document.getElementById('zoom-controls').style.display = 'flex';
+            document.getElementById('zoom-level').textContent = Math.round(zoomLevel * 100) + '%';
+
+            imageScale = zoomLevel;
         }
 
         function drawROI() {

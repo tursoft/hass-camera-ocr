@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.4] - 2026
+
+### Added
+- Zoom controls in Live Preview (mouse wheel or +/- buttons, up to 400%)
+- Rotation controls in Live Preview (rotate left/right buttons)
+- Zoom level indicator
+
+### Fixed
+- Fixed ROI rectangle drawing offset - now starts at exact cursor position
+- Improved mouse position calculation for ROI selection
+
 ## [1.2.3] - 2026
 
 ### Fixed
