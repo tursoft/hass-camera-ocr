@@ -3,7 +3,12 @@
 ## [1.2.18] - 2026
 
 ### Added
-- **Saved ROI Detail Dialog**: Click on any saved ROI to view full details with Apply/Test buttons
+- **OCR Training Feature**: Validate saved ROIs with correct values to improve OCR accuracy
+  - Click "Validate" on any saved ROI to enter the correct numeric value
+  - Use "Train OCR" button to test different preprocessing settings on validated ROIs
+  - Shows optimal preprocessing and PSM mode configuration based on training results
+- **Validated ROI Badges**: Green checkmark on saved ROIs that have been validated
+- **Saved ROI Detail Dialog**: Click on any saved ROI to view full details with Apply/Test/Validate buttons
 - **ROI Test Busy Indicator**: Visual feedback when testing saved ROIs
 
 ### Fixed

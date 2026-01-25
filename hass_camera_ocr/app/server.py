@@ -2545,6 +2545,27 @@ WEB_UI = '''
             margin-top: 2px;
         }
 
+        .saved-roi-item.validated {
+            border-color: var(--success);
+        }
+
+        .validated-badge {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            background: var(--success);
+            color: #fff;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            z-index: 2;
+        }
+
         .saved-roi-delete {
             position: absolute;
             top: 4px;
@@ -3368,6 +3389,13 @@ WEB_UI = '''
                                 <div class="saved-rois-header">
                                     <span>Saved ROIs</span>
                                     <div style="display: flex; gap: 8px;">
+                                        <button class="btn btn-sm" onclick="trainOCR()" id="train-ocr-btn" style="background: var(--warning); color: #000;" title="Train OCR using validated ROIs">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="margin-right: 4px;">
+                                                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                                                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+                                            </svg>
+                                            Train OCR
+                                        </button>
                                         <button class="btn btn-primary btn-sm" onclick="testAllROIs()" id="test-all-btn">Test All</button>
                                         <button class="btn btn-success btn-sm" onclick="saveCurrentROI()">Save Current</button>
                                     </div>
@@ -5190,20 +5218,24 @@ WEB_UI = '''
 
                 if (rois.length > 0) {
                     section.style.display = 'block';
-                    list.innerHTML = rois.map(roi => `
-                        <div class="saved-roi-item" data-roi-id="${roi.id}" onclick="showSavedRoiDetail('${roi.id}', ${JSON.stringify(roi).replace(/"/g, '&quot;')})">
+                    const validatedCount = rois.filter(r => r.validated_value !== undefined).length;
+                    list.innerHTML = rois.map(roi => {
+                        const isValidated = roi.validated_value !== undefined;
+                        return `
+                        <div class="saved-roi-item ${isValidated ? 'validated' : ''}" data-roi-id="${roi.id}" onclick="showSavedRoiDetail('${roi.id}', ${JSON.stringify(roi).replace(/"/g, '&quot;')})">
                             <img src="api/saved-rois/${encodeURIComponent(name)}/${roi.id}/image" alt="ROI">
+                            ${isValidated ? '<div class="validated-badge" title="Validated for OCR training">&#x2714;</div>' : ''}
                             <div class="saved-roi-buttons">
                                 <button class="saved-roi-apply" onclick="event.stopPropagation(); applySavedROI(${JSON.stringify(roi.roi).replace(/"/g, '&quot;')})" title="Apply">&#x2714;</button>
                                 <button class="saved-roi-test" onclick="testSavedROI(${JSON.stringify(roi.roi).replace(/"/g, '&quot;')}, '${roi.id}', event)" title="Test">&#x25B6;</button>
                             </div>
                             <button class="saved-roi-delete" onclick="event.stopPropagation(); deleteSavedROI('${name}', '${roi.id}')">&times;</button>
                             <div class="saved-roi-info">
-                                <div class="saved-roi-value" id="roi-value-${roi.id}">${roi.extracted_value !== undefined && roi.extracted_value !== null ? roi.extracted_value : '--'}</div>
+                                <div class="saved-roi-value" id="roi-value-${roi.id}">${isValidated ? roi.validated_value : (roi.extracted_value !== undefined && roi.extracted_value !== null ? roi.extracted_value : '--')}</div>
                                 <div class="saved-roi-time">${new Date(roi.timestamp * 1000).toLocaleString()}</div>
                             </div>
                         </div>
-                    `).join('');
+                    `}).join('');
                 } else {
                     section.style.display = 'block';
                     list.innerHTML = '<p style="color: var(--text-3); font-size: 12px;">No saved ROIs. Draw an ROI and click "Save Current ROI".</p>';
@@ -5482,6 +5514,8 @@ WEB_UI = '''
             const confidence = testResult.confidence || roiData.confidence || 0;
             const barClass = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
             const rawText = testResult.raw_text || roiData.raw_text || '--';
+            const validatedValue = roiData.validated_value;
+            const validatedAt = roiData.validated_at ? new Date(roiData.validated_at * 1000).toLocaleString() : null;
 
             const dialog = document.createElement('div');
             dialog.className = 'history-detail-dialog';
@@ -5501,9 +5535,16 @@ WEB_UI = '''
                         <img class="history-detail-image" src="api/saved-rois/${encodeURIComponent(name)}/${roiId}/image" onerror="this.style.display='none'">
                         <div class="history-detail-grid">
                             <div class="history-detail-item">
-                                <label>Value</label>
+                                <label>OCR Value</label>
                                 <div class="value" style="color: ${confidence < 80 && confidence > 0 ? 'var(--error)' : 'var(--primary)'};">
                                     ${value} ${unit}
+                                </div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>Validated Value</label>
+                                <div class="value" style="color: ${validatedValue !== undefined ? 'var(--success)' : 'var(--text-3)'};">
+                                    ${validatedValue !== undefined ? validatedValue + ' ' + unit : 'Not validated'}
+                                    ${validatedAt ? `<div style="font-size: 11px; color: var(--text-3);">${validatedAt}</div>` : ''}
                                 </div>
                             </div>
                             <div class="history-detail-item">
@@ -5521,16 +5562,208 @@ WEB_UI = '''
                                 <label>Raw Text</label>
                                 <div class="value">${rawText}</div>
                             </div>
-                            <div class="history-detail-item full-width">
+                            <div class="history-detail-item">
                                 <label>ROI Coordinates</label>
                                 <div class="value" style="font-family: monospace; font-size: 12px;">
                                     X: ${roiData.roi?.x || 0}, Y: ${roiData.roi?.y || 0}, W: ${roiData.roi?.width || 0}, H: ${roiData.roi?.height || 0}
                                 </div>
                             </div>
                         </div>
-                        <div style="margin-top: 16px; display: flex; gap: 8px;">
+                        <div style="margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap;">
                             <button class="btn btn-primary" onclick="applySavedROI(${JSON.stringify(roiData.roi)}); this.closest('.history-detail-dialog').remove();">Apply ROI</button>
                             <button class="btn btn-secondary" onclick="testSavedROI(${JSON.stringify(roiData.roi)}, '${roiId}'); this.closest('.history-detail-dialog').remove();">Test Extract</button>
+                            <button class="btn btn-secondary" onclick="showValidateDialog('${roiId}', ${JSON.stringify(roiData).replace(/"/g, '&quot;')})" style="background: var(--warning); color: #000;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="margin-right: 4px;">
+                                    <path d="M9 11l3 3L22 4"></path>
+                                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                                </svg>
+                                Validate
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(dialog);
+        }
+
+        function showValidateDialog(roiId, roiData) {
+            const name = document.getElementById('live-camera-select').value;
+            const camera = cameras[name] || {};
+            const unit = camera.unit || '';
+            const currentValue = roiData.validated_value !== undefined ? roiData.validated_value : (roiData.extracted_value || '');
+
+            // Close the detail dialog first
+            document.querySelectorAll('.history-detail-dialog').forEach(d => d.remove());
+
+            const dialog = document.createElement('div');
+            dialog.className = 'history-detail-dialog';
+            dialog.onclick = (e) => { if (e.target === dialog) dialog.remove(); };
+            dialog.innerHTML = `
+                <div class="history-detail-content" style="max-width: 400px;">
+                    <div class="history-detail-header">
+                        <h3>Validate OCR Value</h3>
+                        <button class="modal-close" onclick="this.closest('.history-detail-dialog').remove()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="history-detail-body">
+                        <img class="history-detail-image" src="api/saved-rois/${encodeURIComponent(name)}/${roiId}/image" style="max-height: 150px;" onerror="this.style.display='none'">
+                        <p style="margin: 16px 0 8px; color: var(--text-2);">
+                            What is the correct value shown in this image?
+                        </p>
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <input type="text" id="validate-value-input" class="form-control"
+                                   value="${currentValue}" placeholder="Enter the correct numeric value"
+                                   style="font-size: 18px; text-align: center;">
+                            <small style="color: var(--text-3);">Unit: ${unit || 'none'}</small>
+                        </div>
+                        <p style="font-size: 12px; color: var(--text-3); margin-bottom: 16px;">
+                            This helps train the OCR system to better recognize values from your camera.
+                            After validating several ROIs, use "Train OCR" to find optimal settings.
+                        </p>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-primary" onclick="submitValidation('${roiId}')" style="flex: 1;">
+                                Save Validated Value
+                            </button>
+                            <button class="btn btn-secondary" onclick="this.closest('.history-detail-dialog').remove()">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(dialog);
+
+            // Focus the input
+            setTimeout(() => document.getElementById('validate-value-input').focus(), 100);
+        }
+
+        async function submitValidation(roiId) {
+            const name = document.getElementById('live-camera-select').value;
+            const value = document.getElementById('validate-value-input').value.trim();
+
+            if (!value) {
+                toast('Please enter a value', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(`api/saved-rois/${encodeURIComponent(name)}/${roiId}/validate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ value: value })
+                });
+
+                if (res.ok) {
+                    toast('Value validated successfully', 'success');
+                    document.querySelectorAll('.history-detail-dialog').forEach(d => d.remove());
+                    loadSavedROIs();
+                } else {
+                    const err = await res.json();
+                    toast(err.error || 'Failed to validate', 'error');
+                }
+            } catch (e) {
+                toast('Failed to validate value', 'error');
+            }
+        }
+
+        async function trainOCR() {
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) {
+                toast('Please select a camera first', 'error');
+                return;
+            }
+
+            const btn = event.target;
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loading" style="width: 16px; height: 16px;"></div> Training...';
+
+            try {
+                const res = await fetch(`api/saved-rois/${encodeURIComponent(name)}/train`, {
+                    method: 'POST'
+                });
+
+                const data = await res.json();
+
+                if (data.error) {
+                    toast(data.error, 'error');
+                } else {
+                    // Show training results
+                    showTrainingResults(data);
+                }
+            } catch (e) {
+                toast('Training failed: ' + e.message, 'error');
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="margin-right: 4px;">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+            </svg> Train OCR`;
+        }
+
+        function showTrainingResults(data) {
+            const dialog = document.createElement('div');
+            dialog.className = 'history-detail-dialog';
+            dialog.onclick = (e) => { if (e.target === dialog) dialog.remove(); };
+
+            const best = data.best_config || {};
+            const ranked = data.ranked_configs || [];
+
+            dialog.innerHTML = `
+                <div class="history-detail-content" style="max-width: 500px;">
+                    <div class="history-detail-header">
+                        <h3>OCR Training Results</h3>
+                        <button class="modal-close" onclick="this.closest('.history-detail-dialog').remove()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="history-detail-body">
+                        <div style="background: var(--bg); padding: 16px; border-radius: 8px; margin-bottom: 16px;">
+                            <h4 style="margin: 0 0 8px; color: var(--success);">Best Configuration</h4>
+                            <p style="margin: 4px 0; font-size: 14px;">
+                                <strong>Preprocessing:</strong> ${best.preprocessing || 'auto'}<br>
+                                <strong>PSM Mode:</strong> ${best.psm || 7}<br>
+                                <strong>Accuracy:</strong> ${(best.accuracy || 0).toFixed(1)}% (${best.matches || 0}/${best.total || 0} matches)
+                            </p>
+                        </div>
+
+                        <p style="margin: 0 0 8px; font-weight: 600;">Tested on ${data.validated_count || 0} validated ROI(s)</p>
+
+                        <div style="margin-top: 16px;">
+                            <h4 style="margin: 0 0 8px;">Top Configurations</h4>
+                            <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
+                                <thead>
+                                    <tr style="background: var(--bg);">
+                                        <th style="padding: 8px; text-align: left;">Preprocessing</th>
+                                        <th style="padding: 8px; text-align: center;">PSM</th>
+                                        <th style="padding: 8px; text-align: right;">Accuracy</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${ranked.map((cfg, i) => `
+                                        <tr style="${i === 0 ? 'background: rgba(76, 175, 80, 0.1);' : ''}">
+                                            <td style="padding: 8px;">${cfg.preprocessing}</td>
+                                            <td style="padding: 8px; text-align: center;">${cfg.psm}</td>
+                                            <td style="padding: 8px; text-align: right;">${(cfg.matches / cfg.total * 100).toFixed(1)}%</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <p style="font-size: 12px; color: var(--text-3); margin-top: 16px;">
+                            To use the best configuration, set the camera's preprocessing to "${best.preprocessing || 'auto'}".
+                        </p>
+
+                        <div style="margin-top: 16px;">
+                            <button class="btn btn-primary" onclick="this.closest('.history-detail-dialog').remove()">Close</button>
                         </div>
                     </div>
                 </div>
@@ -6585,6 +6818,169 @@ def ptz_control():
         return jsonify(result), 500
 
     return jsonify(result)
+
+
+@app.route('/api/saved-rois/<camera_name>/<roi_id>/validate', methods=['POST'])
+def validate_roi(camera_name, roi_id):
+    """Save user-validated value for a saved ROI for OCR training."""
+    data = request.json
+    validated_value = data.get('value')
+
+    if validated_value is None:
+        return jsonify({'error': 'Value required'}), 400
+
+    # Load saved ROIs
+    rois_file = os.path.join(SAVED_ROIS_PATH, f'{camera_name}.json')
+    if not os.path.exists(rois_file):
+        return jsonify({'error': 'No saved ROIs for this camera'}), 404
+
+    try:
+        with open(rois_file, 'r') as f:
+            rois = json.load(f)
+
+        # Find and update the ROI
+        found = False
+        for roi in rois:
+            if roi.get('id') == roi_id:
+                roi['validated_value'] = validated_value
+                roi['validated_at'] = time.time()
+                found = True
+                break
+
+        if not found:
+            return jsonify({'error': 'ROI not found'}), 404
+
+        # Save updated ROIs
+        with open(rois_file, 'w') as f:
+            json.dump(rois, f, indent=2)
+
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error validating ROI: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/saved-rois/<camera_name>/train', methods=['POST'])
+def train_ocr(camera_name):
+    """Run OCR training to find optimal preprocessing for validated ROIs."""
+    # Load saved ROIs with validated values
+    rois_file = os.path.join(SAVED_ROIS_PATH, f'{camera_name}.json')
+    if not os.path.exists(rois_file):
+        return jsonify({'error': 'No saved ROIs for this camera'}), 404
+
+    try:
+        with open(rois_file, 'r') as f:
+            rois = json.load(f)
+
+        # Filter only validated ROIs
+        validated_rois = [r for r in rois if r.get('validated_value') is not None]
+
+        if len(validated_rois) == 0:
+            return jsonify({'error': 'No validated ROIs found. Please validate at least one ROI first.'}), 400
+
+        # Test different preprocessing options on validated ROIs
+        preprocessing_options = ['auto', 'threshold', 'adaptive', 'invert', 'none']
+        psm_modes = [7, 8, 6, 13, 11]  # Single line, word, block, raw, sparse
+
+        results = []
+        best_config = {'preprocessing': 'auto', 'psm': 7, 'accuracy': 0}
+
+        for roi_data in validated_rois:
+            roi_id = roi_data.get('id')
+            expected_value = str(roi_data.get('validated_value'))
+
+            # Load the ROI image
+            img_path = os.path.join(SAVED_ROIS_PATH, camera_name, f'{roi_id}.png')
+            if not os.path.exists(img_path):
+                continue
+
+            img = cv2.imread(img_path)
+            if img is None:
+                continue
+
+            roi_results = {
+                'roi_id': roi_id,
+                'expected': expected_value,
+                'tests': []
+            }
+
+            for preproc in preprocessing_options:
+                for psm in psm_modes:
+                    try:
+                        # Process the image
+                        processed = processor._preprocess_image(img, preproc)
+
+                        # Run OCR with specific PSM mode
+                        config = f'--oem 3 --psm {psm} -c tessedit_char_whitelist=0123456789.-'
+                        text = pytesseract.image_to_string(processed, config=config).strip()
+
+                        # Extract numeric value
+                        numbers = re.findall(r'[-+]?\d*\.?\d+', text)
+                        ocr_value = numbers[0] if numbers else ''
+
+                        # Check if it matches expected
+                        match = ocr_value == expected_value
+
+                        roi_results['tests'].append({
+                            'preprocessing': preproc,
+                            'psm': psm,
+                            'result': ocr_value,
+                            'match': match
+                        })
+
+                        if match:
+                            # Count matches for this config across all validated ROIs
+                            config_key = f'{preproc}_{psm}'
+                            current_count = sum(1 for r in results for t in r.get('tests', [])
+                                              if t.get('match') and f"{t['preprocessing']}_{t['psm']}" == config_key)
+                            if current_count + 1 > best_config['accuracy']:
+                                best_config = {'preprocessing': preproc, 'psm': psm, 'accuracy': current_count + 1}
+
+                    except Exception as e:
+                        pass
+
+            results.append(roi_results)
+
+        # Calculate accuracy for each config
+        config_stats = {}
+        for roi_result in results:
+            for test in roi_result.get('tests', []):
+                key = f"{test['preprocessing']}_psm{test['psm']}"
+                if key not in config_stats:
+                    config_stats[key] = {'matches': 0, 'total': 0, 'preprocessing': test['preprocessing'], 'psm': test['psm']}
+                config_stats[key]['total'] += 1
+                if test.get('match'):
+                    config_stats[key]['matches'] += 1
+
+        # Sort by accuracy
+        ranked_configs = sorted(
+            config_stats.values(),
+            key=lambda x: x['matches'] / x['total'] if x['total'] > 0 else 0,
+            reverse=True
+        )
+
+        # Get the best config
+        if ranked_configs and ranked_configs[0]['matches'] > 0:
+            best = ranked_configs[0]
+            best_config = {
+                'preprocessing': best['preprocessing'],
+                'psm': best['psm'],
+                'accuracy': best['matches'] / best['total'] * 100,
+                'matches': best['matches'],
+                'total': best['total']
+            }
+
+        return jsonify({
+            'success': True,
+            'validated_count': len(validated_rois),
+            'best_config': best_config,
+            'ranked_configs': ranked_configs[:5],  # Top 5 configs
+            'detailed_results': results
+        })
+
+    except Exception as e:
+        logger.error(f"Error training OCR: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/reload', methods=['POST'])
