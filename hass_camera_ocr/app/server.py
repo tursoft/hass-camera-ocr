@@ -699,11 +699,18 @@ class CameraProcessor:
         else:
             gray = image.copy()
 
-        # Scale up small images
+        # Scale up small images significantly for better OCR
         h, w = gray.shape[:2]
-        if h < 100 or w < 100:
-            scale = max(100 / h, 100 / w, 2)
-            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        if h < 50 or w < 50:
+            scale = max(200 / h, 200 / w, 4)
+        elif h < 100 or w < 100:
+            scale = max(150 / h, 150 / w, 3)
+        else:
+            scale = 2
+        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+
+        # Enhance contrast for digital displays
+        gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
 
         if method == "none":
             return gray
@@ -716,14 +723,57 @@ class CameraProcessor:
         elif method == "invert":
             _, processed = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
             return cv2.bitwise_not(processed)
-        else:  # auto
-            blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+        else:  # auto - try multiple methods and return best
+            # Apply CLAHE for better contrast on digital displays
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            enhanced = clahe.apply(gray)
+
+            # Denoise
+            denoised = cv2.fastNlMeansDenoising(enhanced, None, 10, 7, 21)
+
+            # Try Otsu's threshold
+            blurred = cv2.GaussianBlur(denoised, (3, 3), 0)
             _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            if np.mean(gray) < 127 and np.mean(binary) > 127:
-                return binary
-            elif np.mean(gray) < 127:
+
+            # Determine if we need to invert based on the mean
+            if np.mean(denoised) < 127:
                 return cv2.bitwise_not(binary)
             return binary
+
+    def try_multiple_preprocessing(self, image: np.ndarray) -> list:
+        """Try multiple preprocessing methods and return all results."""
+        methods = ['auto', 'threshold', 'adaptive', 'invert']
+        results = []
+        for method in methods:
+            try:
+                processed = self.preprocess_image(image, method)
+                results.append((method, processed))
+            except:
+                pass
+        return results
+
+    def _ocr_single(self, processed: np.ndarray, psm: int = 7) -> tuple:
+        """Run OCR on a single preprocessed image."""
+        config = f"--oem 3 --psm {psm} -c tessedit_char_whitelist=0123456789.-"
+        raw_text = pytesseract.image_to_string(processed, config=config).strip()
+
+        # Get confidence
+        data = pytesseract.image_to_data(processed, config=config, output_type=pytesseract.Output.DICT)
+        confidences = [int(c) for c in data["conf"] if str(c).isdigit() and int(c) > 0]
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 0
+
+        # Parse value
+        value = None
+        for pattern in [r"-?\d+\.\d+", r"-?\d+,\d+", r"-?\d+"]:
+            match = re.search(pattern, raw_text)
+            if match:
+                try:
+                    value = float(match.group().replace(",", "."))
+                    break
+                except ValueError:
+                    continue
+
+        return value, raw_text, avg_confidence
 
     def extract_value(self, camera: CameraConfig, frame: np.ndarray) -> ExtractedValue:
         """Extract numeric value from frame with optional template matching."""
@@ -753,28 +803,34 @@ class CameraProcessor:
                 roi_x, roi_y = 0, 0
                 roi_height, roi_width = frame.shape[:2]
 
-            # Preprocess
-            processed = self.preprocess_image(roi_frame, camera.preprocessing)
+            # Try multiple preprocessing methods and PSM modes to find best result
+            best_result = (None, "", 0)  # (value, raw_text, confidence)
+            methods_to_try = ['auto', 'threshold', 'adaptive', 'invert'] if camera.preprocessing == 'auto' else [camera.preprocessing]
+            psm_modes = [7, 8, 6, 13]  # 7=single line, 8=single word, 6=uniform block, 13=raw line
 
-            # OCR
-            config = "--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789.-"
-            raw_text = pytesseract.image_to_string(processed, config=config).strip()
+            for method in methods_to_try:
+                processed = self.preprocess_image(roi_frame, method)
 
-            # Get confidence
-            data = pytesseract.image_to_data(processed, config=config, output_type=pytesseract.Output.DICT)
-            confidences = [int(c) for c in data["conf"] if str(c).isdigit() and int(c) > 0]
-            avg_confidence = sum(confidences) / len(confidences) if confidences else 0
-
-            # Parse value
-            value = None
-            for pattern in [r"-?\d+\.\d+", r"-?\d+,\d+", r"-?\d+"]:
-                match = re.search(pattern, raw_text)
-                if match:
+                for psm in psm_modes:
                     try:
-                        value = float(match.group().replace(",", "."))
-                        break
-                    except ValueError:
+                        value, raw_text, confidence = self._ocr_single(processed, psm)
+
+                        # Keep best result based on confidence and having a valid value
+                        if value is not None and confidence > best_result[2]:
+                            best_result = (value, raw_text, confidence)
+                            logger.debug(f"Better result: {value} ({confidence:.0f}%) with method={method}, psm={psm}")
+
+                        # If we got high confidence, stop trying
+                        if confidence > 80 and value is not None:
+                            break
+                    except Exception as e:
+                        logger.debug(f"OCR attempt failed: {e}")
                         continue
+
+                if best_result[2] > 80:
+                    break
+
+            value, raw_text, avg_confidence = best_result
 
             return ExtractedValue(
                 camera_name=camera.name,
@@ -2600,8 +2656,15 @@ WEB_UI = '''
         // Live Preview
         function populateCameraSelect() {
             const select = document.getElementById('live-camera-select');
+            const cameraNames = Object.keys(cameras);
             select.innerHTML = '<option value="">-- Select a camera --</option>' +
-                Object.keys(cameras).map(name => `<option value="${name}">${name}</option>`).join('');
+                cameraNames.map(name => `<option value="${name}">${name}</option>`).join('');
+
+            // Auto-select first camera if available and none selected
+            if (cameraNames.length > 0 && !select.value) {
+                select.value = cameraNames[0];
+                loadLivePreview();
+            }
         }
 
         function populateTemplateSelect() {
@@ -2668,21 +2731,65 @@ WEB_UI = '''
         }
 
         // Canvas & ROI
+        let dragMode = 'none'; // 'none', 'draw', 'move', 'resize-tl', 'resize-tr', 'resize-bl', 'resize-br'
+        let dragStartROI = null;
+        const HANDLE_SIZE = 12; // Size of corner handles in image coordinates
+
         function getMousePos(canvas, e) {
             const rect = canvas.getBoundingClientRect();
-            // Account for CSS scaling by comparing canvas internal size to displayed size
             const scaleX = canvas.width / rect.width;
             const scaleY = canvas.height / rect.height;
-
-            // Get position relative to canvas, accounting for any CSS transforms
             const x = (e.clientX - rect.left) * scaleX;
             const y = (e.clientY - rect.top) * scaleY;
-
-            // Convert to original image coordinates
             return {
                 x: x / zoomLevel,
                 y: y / zoomLevel
             };
+        }
+
+        function getHitTarget(pos) {
+            if (currentROI.width === 0 || currentROI.height === 0) return 'draw';
+
+            const roi = currentROI;
+            const hs = HANDLE_SIZE / zoomLevel; // Adjust handle size for zoom
+
+            // Check corner handles first
+            if (Math.abs(pos.x - roi.x) < hs && Math.abs(pos.y - roi.y) < hs) return 'resize-tl';
+            if (Math.abs(pos.x - (roi.x + roi.width)) < hs && Math.abs(pos.y - roi.y) < hs) return 'resize-tr';
+            if (Math.abs(pos.x - roi.x) < hs && Math.abs(pos.y - (roi.y + roi.height)) < hs) return 'resize-bl';
+            if (Math.abs(pos.x - (roi.x + roi.width)) < hs && Math.abs(pos.y - (roi.y + roi.height)) < hs) return 'resize-br';
+
+            // Check if inside ROI (for moving)
+            if (pos.x >= roi.x && pos.x <= roi.x + roi.width &&
+                pos.y >= roi.y && pos.y <= roi.y + roi.height) {
+                return 'move';
+            }
+
+            return 'draw';
+        }
+
+        function updateCursor(canvas, pos) {
+            if (!previewImage || currentROI.width === 0) {
+                canvas.style.cursor = 'crosshair';
+                return;
+            }
+
+            const target = getHitTarget(pos);
+            switch (target) {
+                case 'resize-tl':
+                case 'resize-br':
+                    canvas.style.cursor = 'nwse-resize';
+                    break;
+                case 'resize-tr':
+                case 'resize-bl':
+                    canvas.style.cursor = 'nesw-resize';
+                    break;
+                case 'move':
+                    canvas.style.cursor = 'move';
+                    break;
+                default:
+                    canvas.style.cursor = 'crosshair';
+            }
         }
 
         function setupCanvas() {
@@ -2691,23 +2798,85 @@ WEB_UI = '''
             canvas.addEventListener('mousedown', (e) => {
                 if (!previewImage) return;
                 e.preventDefault();
-                isDrawing = true;
                 const pos = getMousePos(canvas, e);
+
+                dragMode = getHitTarget(pos);
+                isDrawing = true;
                 startX = pos.x;
                 startY = pos.y;
+                dragStartROI = { ...currentROI };
             });
 
             canvas.addEventListener('mousemove', (e) => {
-                if (!isDrawing || !previewImage) return;
+                if (!previewImage) return;
                 e.preventDefault();
                 const pos = getMousePos(canvas, e);
 
-                currentROI = {
-                    x: Math.round(Math.min(startX, pos.x)),
-                    y: Math.round(Math.min(startY, pos.y)),
-                    width: Math.round(Math.abs(pos.x - startX)),
-                    height: Math.round(Math.abs(pos.y - startY))
-                };
+                // Update cursor based on position
+                if (!isDrawing) {
+                    updateCursor(canvas, pos);
+                    return;
+                }
+
+                const dx = pos.x - startX;
+                const dy = pos.y - startY;
+
+                switch (dragMode) {
+                    case 'move':
+                        currentROI = {
+                            x: Math.max(0, Math.round(dragStartROI.x + dx)),
+                            y: Math.max(0, Math.round(dragStartROI.y + dy)),
+                            width: dragStartROI.width,
+                            height: dragStartROI.height
+                        };
+                        break;
+
+                    case 'resize-tl':
+                        currentROI = {
+                            x: Math.round(Math.min(dragStartROI.x + dragStartROI.width - 10, dragStartROI.x + dx)),
+                            y: Math.round(Math.min(dragStartROI.y + dragStartROI.height - 10, dragStartROI.y + dy)),
+                            width: Math.max(10, Math.round(dragStartROI.width - dx)),
+                            height: Math.max(10, Math.round(dragStartROI.height - dy))
+                        };
+                        break;
+
+                    case 'resize-tr':
+                        currentROI = {
+                            x: dragStartROI.x,
+                            y: Math.round(Math.min(dragStartROI.y + dragStartROI.height - 10, dragStartROI.y + dy)),
+                            width: Math.max(10, Math.round(dragStartROI.width + dx)),
+                            height: Math.max(10, Math.round(dragStartROI.height - dy))
+                        };
+                        break;
+
+                    case 'resize-bl':
+                        currentROI = {
+                            x: Math.round(Math.min(dragStartROI.x + dragStartROI.width - 10, dragStartROI.x + dx)),
+                            y: dragStartROI.y,
+                            width: Math.max(10, Math.round(dragStartROI.width - dx)),
+                            height: Math.max(10, Math.round(dragStartROI.height + dy))
+                        };
+                        break;
+
+                    case 'resize-br':
+                        currentROI = {
+                            x: dragStartROI.x,
+                            y: dragStartROI.y,
+                            width: Math.max(10, Math.round(dragStartROI.width + dx)),
+                            height: Math.max(10, Math.round(dragStartROI.height + dy))
+                        };
+                        break;
+
+                    case 'draw':
+                    default:
+                        currentROI = {
+                            x: Math.round(Math.min(startX, pos.x)),
+                            y: Math.round(Math.min(startY, pos.y)),
+                            width: Math.round(Math.abs(pos.x - startX)),
+                            height: Math.round(Math.abs(pos.y - startY))
+                        };
+                        break;
+                }
 
                 updateROIDisplay();
                 drawROI();
@@ -2715,10 +2884,12 @@ WEB_UI = '''
 
             canvas.addEventListener('mouseup', () => {
                 isDrawing = false;
+                dragMode = 'none';
             });
 
             canvas.addEventListener('mouseleave', () => {
                 isDrawing = false;
+                dragMode = 'none';
             });
         }
 

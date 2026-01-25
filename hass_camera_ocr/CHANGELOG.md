@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.2.6] - 2026
+
+### Added
+- Auto-load first camera when opening Live Preview
+- Move ROI by dragging inside the rectangle
+- Resize ROI by dragging corner handles
+- Cursor changes to indicate move/resize/draw mode
+
+### Improved
+- OCR accuracy significantly improved with multiple preprocessing attempts
+- CLAHE contrast enhancement for digital displays
+- Denoising for cleaner images
+- Try multiple PSM modes (single line, single word, block, raw)
+- Scale up small ROIs more aggressively (3-4x for tiny regions)
+- Better handling of dark displays
+
 ## [1.2.5] - 2026
 
 ### Added
