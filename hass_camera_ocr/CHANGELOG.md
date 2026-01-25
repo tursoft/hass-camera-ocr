@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.19] - 2026
+
+### Changed
+- Version bump to trigger add-on update
+
 ## [1.2.18] - 2026
 
 ### Added
