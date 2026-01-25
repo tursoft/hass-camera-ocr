@@ -1322,7 +1322,7 @@
                             <div class="card" style="margin: 0;">
                                 <div class="card-title" style="justify-content: space-between;">
                                     <span>Extraction Result</span>
-                                    <button class="btn btn-success btn-sm" onclick="saveCurrentROI()" id="add-to-roi-btn" style="display: none;">
+                                    <button class="btn btn-success btn-sm" onclick="saveExtractionROI()" id="add-to-roi-btn" style="display: none;">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
                                             <line x1="12" y1="5" x2="12" y2="19"></line>
                                             <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -1707,6 +1707,7 @@
         let liveUpdateInterval = null;
         let isLivePaused = false;
         let previewMode = 'edit';  // 'edit' or 'test'
+        let lastExtractionResult = null;  // Store last test extraction for saving
 
         function setPreviewMode(mode) {
             previewMode = mode;
@@ -3203,13 +3204,21 @@
             resultConfidence.textContent = 'Extracting...';
             resultPreview.style.display = 'none';
 
+            // Calculate actual ROI coordinates (accounting for zoom)
+            const actualROI = {
+                x: Math.round(currentROI.x / zoomLevel),
+                y: Math.round(currentROI.y / zoomLevel),
+                width: Math.round(currentROI.width / zoomLevel),
+                height: Math.round(currentROI.height / zoomLevel)
+            };
+
             try {
                 const res = await fetch('api/test-extraction', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         camera_name: name,
-                        roi: currentROI,
+                        roi: actualROI,
                         preprocessing: preprocessing
                     })
                 });
@@ -3217,6 +3226,15 @@
                 const data = await res.json();
 
                 if (data.success) {
+                    // Store extraction result for saving (with actual coordinates)
+                    lastExtractionResult = {
+                        cameraName: name,
+                        roi: { ...actualROI },
+                        roiPreview: data.roi_preview,
+                        extractedValue: data.value,
+                        confidence: data.confidence
+                    };
+
                     // Show ROI preview if available
                     const previewEl = document.getElementById('result-roi-preview');
                     if (data.roi_preview) {
@@ -3240,6 +3258,7 @@
                     // Show Save ROI button on successful extraction
                     document.getElementById('add-to-roi-btn').style.display = 'flex';
                 } else {
+                    lastExtractionResult = null;
                     document.getElementById('result-roi-preview').style.display = 'none';
                     document.getElementById('result-value').textContent = 'Error';
                     document.getElementById('result-raw').textContent = data.error || 'Unknown error';
@@ -3248,6 +3267,59 @@
                 }
             } catch (e) {
                 toast('Extraction failed', 'error');
+            }
+        }
+
+        async function saveExtractionROI() {
+            if (!lastExtractionResult) {
+                toast('No extraction result to save. Run Test Extract first.', 'error');
+                return;
+            }
+
+            const { cameraName, roi, roiPreview, extractedValue } = lastExtractionResult;
+
+            if (!roiPreview) {
+                toast('No ROI image available', 'error');
+                return;
+            }
+
+            // Prompt for validation value
+            const validatedValue = await promptForValidationValue(extractedValue, `data:image/png;base64,${roiPreview}`);
+            if (validatedValue === null && !confirm('Save ROI without validation value?')) {
+                return;
+            }
+
+            try {
+                const res = await fetch(`api/saved-rois/${encodeURIComponent(cameraName)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        roi: roi,
+                        screenshot: roiPreview,
+                        extracted_value: extractedValue,
+                        validated_value: validatedValue
+                    })
+                });
+
+                if (res.ok) {
+                    // Also save to camera config as the active ROI
+                    await fetch(`api/cameras/${encodeURIComponent(cameraName)}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            roi_x: roi.x,
+                            roi_y: roi.y,
+                            roi_width: roi.width,
+                            roi_height: roi.height
+                        })
+                    });
+                    toast('ROI saved from extraction result', 'success');
+                    loadSavedROIs();
+                } else {
+                    toast('Failed to save ROI', 'error');
+                }
+            } catch (e) {
+                toast('Failed to save ROI', 'error');
             }
         }
 
