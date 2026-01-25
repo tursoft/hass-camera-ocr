@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.14] - 2026
+
+### Added
+- **Home Assistant Entity Integration**: Automatically exposes sensor entities for each camera
+  - `sensor.camera_ocr_{name}_value` - Numeric value
+  - `sensor.camera_ocr_{name}_text` - Raw OCR text
+  - `sensor.camera_ocr_{name}_confidence` - Confidence percentage
+- Sensors can be used in dashboards and automations
+
+### Documentation
+- Added Home Assistant entity documentation with automation examples
+
 ## [1.2.13] - 2026
 
 ### Added

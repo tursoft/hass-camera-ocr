@@ -5,7 +5,7 @@
 <h1 align="center">Camera OCR for Home Assistant</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.13-blue.svg" alt="Version 1.2.13">
+  <img src="https://img.shields.io/badge/version-1.2.14-blue.svg" alt="Version 1.2.14">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License MIT">
   <img src="https://img.shields.io/github/stars/tursoft/hass-camera-ocr?style=flat&logo=github" alt="GitHub Stars">
   <img src="https://img.shields.io/github/forks/tursoft/hass-camera-ocr?style=flat&logo=github" alt="GitHub Forks">
@@ -278,6 +278,51 @@ data:
   template_name: boiler_display
 ```
 
+## Home Assistant Entities
+
+The add-on automatically creates sensor entities in Home Assistant for each configured camera:
+
+### Entity Naming
+
+For a camera named "Boiler Temperature", the following entities are created:
+
+| Entity ID | Description |
+|-----------|-------------|
+| `sensor.camera_ocr_boiler_temperature_value` | Numeric value extracted (float) |
+| `sensor.camera_ocr_boiler_temperature_text` | Raw OCR text |
+| `sensor.camera_ocr_boiler_temperature_confidence` | OCR confidence percentage |
+
+### Using in Automations
+
+```yaml
+automation:
+  - alias: "Boiler High Temperature Alert"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.camera_ocr_boiler_temperature_value
+        above: 80
+    condition:
+      - condition: numeric_state
+        entity_id: sensor.camera_ocr_boiler_temperature_confidence
+        above: 70
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "Boiler Alert"
+          message: "Temperature is {{ states('sensor.camera_ocr_boiler_temperature_value') }}°C"
+```
+
+### Using in Dashboard
+
+```yaml
+type: entities
+entities:
+  - entity: sensor.camera_ocr_boiler_temperature_value
+    name: Boiler Temperature
+  - entity: sensor.camera_ocr_boiler_temperature_confidence
+    name: OCR Confidence
+```
+
 ## Sensor Attributes
 
 Each sensor provides these attributes:
@@ -286,11 +331,8 @@ Each sensor provides these attributes:
 |-----------|-------------|
 | `raw_text` | Raw text extracted by OCR |
 | `confidence` | OCR confidence percentage |
-| `last_frame_time` | Timestamp of last analyzed frame |
 | `camera_name` | Name of the camera |
-| `roi_x`, `roi_y`, `roi_width`, `roi_height` | Current ROI coordinates |
-| `preprocessing` | Preprocessing method used |
-| `stream_url` | Camera stream URL |
+| `error` | Error message if extraction failed |
 | `video_description` | AI-generated scene description (if enabled) |
 
 ## AI Integration

@@ -1102,6 +1102,169 @@ class AIService:
             return 'none'
 
 
+class HomeAssistantIntegration:
+    """Integration with Home Assistant to expose sensor entities."""
+
+    # Supervisor API endpoint
+    SUPERVISOR_API = "http://supervisor/core/api"
+
+    @classmethod
+    def _get_headers(cls) -> dict:
+        """Get authentication headers for Supervisor API."""
+        token = os.environ.get('SUPERVISOR_TOKEN', '')
+        return {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        }
+
+    @classmethod
+    def _sanitize_name(cls, name: str) -> str:
+        """Sanitize camera name for use in entity IDs."""
+        # Convert to lowercase, replace spaces and special chars with underscores
+        sanitized = re.sub(r'[^a-z0-9]', '_', name.lower())
+        # Remove consecutive underscores
+        sanitized = re.sub(r'_+', '_', sanitized)
+        # Remove leading/trailing underscores
+        return sanitized.strip('_')
+
+    @classmethod
+    def update_sensor(cls, camera_name: str, value: Optional[float], raw_text: str,
+                      confidence: float, unit: str = "", error: str = "",
+                      video_description: str = "") -> bool:
+        """Update Home Assistant sensor entities for a camera."""
+        import urllib.request
+        import urllib.error
+
+        token = os.environ.get('SUPERVISOR_TOKEN', '')
+        if not token:
+            logger.debug("SUPERVISOR_TOKEN not available, skipping HA integration")
+            return False
+
+        sanitized_name = cls._sanitize_name(camera_name)
+        headers = cls._get_headers()
+
+        try:
+            # Update numeric value sensor
+            value_entity_id = f"sensor.camera_ocr_{sanitized_name}_value"
+            value_state = str(value) if value is not None else "unknown"
+            value_data = {
+                'state': value_state,
+                'attributes': {
+                    'friendly_name': f"{camera_name} OCR Value",
+                    'unit_of_measurement': unit,
+                    'device_class': 'measurement' if unit else None,
+                    'confidence': round(confidence, 1) if confidence else 0,
+                    'raw_text': raw_text,
+                    'camera_name': camera_name,
+                    'error': error,
+                    'video_description': video_description,
+                    'icon': 'mdi:numeric'
+                }
+            }
+
+            req = urllib.request.Request(
+                f"{cls.SUPERVISOR_API}/states/{value_entity_id}",
+                data=json.dumps(value_data).encode('utf-8'),
+                headers=headers,
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                response.read()
+
+            # Update text sensor (raw OCR text)
+            text_entity_id = f"sensor.camera_ocr_{sanitized_name}_text"
+            text_data = {
+                'state': raw_text[:255] if raw_text else "unknown",  # HA state max 255 chars
+                'attributes': {
+                    'friendly_name': f"{camera_name} OCR Text",
+                    'camera_name': camera_name,
+                    'full_text': raw_text,
+                    'numeric_value': value,
+                    'confidence': round(confidence, 1) if confidence else 0,
+                    'icon': 'mdi:text-recognition'
+                }
+            }
+
+            req = urllib.request.Request(
+                f"{cls.SUPERVISOR_API}/states/{text_entity_id}",
+                data=json.dumps(text_data).encode('utf-8'),
+                headers=headers,
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                response.read()
+
+            # Update confidence sensor
+            conf_entity_id = f"sensor.camera_ocr_{sanitized_name}_confidence"
+            conf_data = {
+                'state': str(round(confidence, 1)) if confidence else "0",
+                'attributes': {
+                    'friendly_name': f"{camera_name} OCR Confidence",
+                    'unit_of_measurement': '%',
+                    'camera_name': camera_name,
+                    'icon': 'mdi:percent'
+                }
+            }
+
+            req = urllib.request.Request(
+                f"{cls.SUPERVISOR_API}/states/{conf_entity_id}",
+                data=json.dumps(conf_data).encode('utf-8'),
+                headers=headers,
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                response.read()
+
+            logger.debug(f"Updated HA sensors for {camera_name}")
+            return True
+
+        except urllib.error.HTTPError as e:
+            logger.warning(f"HA API HTTP error for {camera_name}: {e.code} - {e.reason}")
+            return False
+        except urllib.error.URLError as e:
+            logger.warning(f"HA API connection error: {e.reason}")
+            return False
+        except Exception as e:
+            logger.error(f"HA integration error: {e}")
+            return False
+
+    @classmethod
+    def remove_sensor(cls, camera_name: str) -> bool:
+        """Remove Home Assistant sensor entities for a camera."""
+        import urllib.request
+        import urllib.error
+
+        token = os.environ.get('SUPERVISOR_TOKEN', '')
+        if not token:
+            return False
+
+        sanitized_name = cls._sanitize_name(camera_name)
+        headers = cls._get_headers()
+
+        entity_ids = [
+            f"sensor.camera_ocr_{sanitized_name}_value",
+            f"sensor.camera_ocr_{sanitized_name}_text",
+            f"sensor.camera_ocr_{sanitized_name}_confidence"
+        ]
+
+        for entity_id in entity_ids:
+            try:
+                # Set state to unavailable to indicate removal
+                data = {'state': 'unavailable', 'attributes': {'friendly_name': 'Removed'}}
+                req = urllib.request.Request(
+                    f"{cls.SUPERVISOR_API}/states/{entity_id}",
+                    data=json.dumps(data).encode('utf-8'),
+                    headers=headers,
+                    method='POST'
+                )
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    response.read()
+            except Exception as e:
+                logger.debug(f"Could not remove entity {entity_id}: {e}")
+
+        return True
+
+
 class CameraProcessor:
     """Process camera streams and extract values with template matching support."""
 
@@ -1645,6 +1808,15 @@ class CameraProcessor:
                 timestamp=time.time(),
                 error=error,
             )
+            # Update Home Assistant sensors with error state
+            HomeAssistantIntegration.update_sensor(
+                camera_name=camera.name,
+                value=None,
+                raw_text="",
+                confidence=0,
+                unit=camera.unit,
+                error=error
+            )
             return
 
         result = self.extract_value(camera, frame)
@@ -1660,6 +1832,17 @@ class CameraProcessor:
                 logger.error(f"AI scene description error: {e}")
 
         self.values[camera.name] = result
+
+        # Update Home Assistant sensors
+        HomeAssistantIntegration.update_sensor(
+            camera_name=camera.name,
+            value=result.value,
+            raw_text=result.raw_text,
+            confidence=result.confidence,
+            unit=camera.unit,
+            error=result.error or "",
+            video_description=result.video_description
+        )
 
         # Add to history
         if camera.name not in self.history:
