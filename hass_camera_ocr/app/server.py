@@ -41,12 +41,14 @@ CAMERAS_PATH = os.path.join(CONFIG_PATH, 'cameras.json')
 TEMPLATES_PATH = os.path.join(CONFIG_PATH, 'templates')
 HISTORY_PATH = os.path.join(CONFIG_PATH, 'history.json')
 SAVED_ROIS_PATH = os.path.join(CONFIG_PATH, 'saved_rois')
+HISTORY_IMAGES_PATH = os.path.join(CONFIG_PATH, 'history_images')
 
 # Ensure directories exist
 Path(CONFIG_PATH).mkdir(parents=True, exist_ok=True)
 Path(TEMPLATES_PATH).mkdir(parents=True, exist_ok=True)
 Path(DATA_PATH).mkdir(parents=True, exist_ok=True)
 Path(SAVED_ROIS_PATH).mkdir(parents=True, exist_ok=True)
+Path(HISTORY_IMAGES_PATH).mkdir(parents=True, exist_ok=True)
 
 
 @dataclass
@@ -65,6 +67,8 @@ class CameraConfig:
     preprocessing: str = "auto"
     template_name: str = ""
     use_template_matching: bool = False
+    min_value: Optional[float] = None  # Expected minimum value (for filtering bad OCR)
+    max_value: Optional[float] = None  # Expected maximum value (for filtering bad OCR)
 
 
 @dataclass
@@ -533,11 +537,19 @@ class ONVIFDiscovery:
 class PortScanner:
     """Scan network for cameras by checking common RTSP/HTTP ports."""
 
-    COMMON_PORTS = [554, 8554, 80, 8080, 443, 8443]
+    # Common camera ports
+    RTSP_PORTS = [554, 8554, 10554]
+    HTTP_PORTS = [80, 8080, 8000, 8888, 443, 8443]
+    CAMERA_PORTS = [2020, 1935]  # 2020 is Tapo, 1935 is RTMP
+
+    # Camera detection keywords in HTTP responses
+    CAMERA_KEYWORDS = ['camera', 'ipcam', 'nvr', 'dvr', 'hikvision', 'dahua', 'tapo',
+                       'reolink', 'amcrest', 'foscam', 'onvif', 'rtsp', 'streaming',
+                       'video', 'webcam', 'tp-link', 'tplink', 'surveillance']
 
     @classmethod
     def scan_network(cls, timeout: float = 0.5) -> list:
-        """Scan local network for cameras by port scanning."""
+        """Scan local network for cameras by port scanning and HTTP detection."""
         cameras = []
 
         # Get local network range
@@ -553,9 +565,12 @@ class PortScanner:
             base_ip = '.'.join(ip_parts[:3])
             logger.info(f"Scanning network {base_ip}.0/24 for cameras...")
 
+            all_ports = cls.RTSP_PORTS + cls.HTTP_PORTS + cls.CAMERA_PORTS
+
             # Scan common IP ranges for cameras
             def check_ip(ip):
-                for port in cls.COMMON_PORTS:
+                open_ports = []
+                for port in all_ports:
                     try:
                         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                         sock.settimeout(timeout)
@@ -563,11 +578,10 @@ class PortScanner:
                         sock.close()
 
                         if result == 0:
-                            logger.info(f"Found open port {port} on {ip}")
-                            return {'ip': ip, 'port': port}
+                            open_ports.append(port)
                     except:
                         pass
-                return None
+                return {'ip': ip, 'ports': open_ports} if open_ports else None
 
             # Scan in parallel using threads
             from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -575,36 +589,113 @@ class PortScanner:
             ips_to_scan = [f"{base_ip}.{i}" for i in range(1, 255)]
             found = []
 
-            with ThreadPoolExecutor(max_workers=50) as executor:
+            with ThreadPoolExecutor(max_workers=100) as executor:
                 futures = {executor.submit(check_ip, ip): ip for ip in ips_to_scan}
+                for future in as_completed(futures, timeout=60):
+                    try:
+                        result = future.result()
+                        if result and result['ports']:
+                            found.append(result)
+                            logger.debug(f"Found open ports on {result['ip']}: {result['ports']}")
+                    except:
+                        pass
+
+            logger.info(f"Port scan found {len(found)} devices with open ports")
+
+            # Analyze found devices to identify cameras
+            def identify_camera(item):
+                ip = item['ip']
+                ports = item['ports']
+
+                # Check if any RTSP port is open - likely a camera
+                rtsp_port = next((p for p in ports if p in cls.RTSP_PORTS), None)
+
+                # Check HTTP for camera indicators
+                http_port = next((p for p in ports if p in cls.HTTP_PORTS), None)
+                manufacturer = ""
+                is_camera = rtsp_port is not None
+
+                if http_port and not is_camera:
+                    # Try to detect camera by HTTP response
+                    try:
+                        url = f"http://{ip}:{http_port}/"
+                        response = requests.get(url, timeout=2, allow_redirects=True)
+                        content = response.text.lower()
+                        headers = str(response.headers).lower()
+
+                        # Check for camera keywords
+                        for keyword in cls.CAMERA_KEYWORDS:
+                            if keyword in content or keyword in headers:
+                                is_camera = True
+                                break
+
+                        # Detect manufacturer
+                        if 'tapo' in content or 'tp-link' in content or 'tplink' in headers:
+                            manufacturer = "TP-Link Tapo"
+                            is_camera = True
+                        elif 'hikvision' in content or 'hikvision' in headers:
+                            manufacturer = "Hikvision"
+                            is_camera = True
+                        elif 'dahua' in content or 'dahua' in headers:
+                            manufacturer = "Dahua"
+                            is_camera = True
+                        elif 'reolink' in content or 'reolink' in headers:
+                            manufacturer = "Reolink"
+                            is_camera = True
+                        elif 'amcrest' in content or 'amcrest' in headers:
+                            manufacturer = "Amcrest"
+                            is_camera = True
+                        elif 'foscam' in content:
+                            manufacturer = "Foscam"
+                            is_camera = True
+
+                    except:
+                        pass
+
+                # Also check for Tapo-specific port 2020
+                if 2020 in ports:
+                    manufacturer = "TP-Link Tapo"
+                    is_camera = True
+
+                if is_camera:
+                    return {
+                        'ip': ip,
+                        'ports': ports,
+                        'rtsp_port': rtsp_port or 554,
+                        'http_port': http_port,
+                        'manufacturer': manufacturer
+                    }
+                return None
+
+            # Identify cameras in parallel
+            with ThreadPoolExecutor(max_workers=20) as executor:
+                futures = {executor.submit(identify_camera, item): item for item in found}
                 for future in as_completed(futures, timeout=30):
                     try:
                         result = future.result()
                         if result:
-                            found.append(result)
+                            ip = result['ip']
+                            if ip == local_ip:
+                                continue
+
+                            manufacturer = result['manufacturer']
+                            rtsp_port = result['rtsp_port']
+                            rtsp_url = ONVIFDiscovery._generate_rtsp_url(ip, manufacturer)
+
+                            cameras.append({
+                                'ip': ip,
+                                'port': rtsp_port,
+                                'http_port': result.get('http_port'),
+                                'manufacturer': manufacturer or 'Unknown',
+                                'model': '',
+                                'name': f"{manufacturer or 'Camera'} @ {ip}",
+                                'stream_url': rtsp_url
+                            })
+                            logger.info(f"Identified camera at {ip} ({manufacturer or 'Unknown'})")
                     except:
                         pass
 
-            # Convert found IPs to camera format
-            seen = set()
-            for item in found:
-                ip = item['ip']
-                if ip in seen or ip == local_ip:
-                    continue
-                seen.add(ip)
-
-                # Only include if RTSP port is open
-                if item['port'] in [554, 8554]:
-                    cameras.append({
-                        'ip': ip,
-                        'port': item['port'],
-                        'manufacturer': 'Unknown',
-                        'model': '',
-                        'name': f"Camera @ {ip}",
-                        'stream_url': f"rtsp://{{user}}:{{pass}}@{ip}:{item['port']}/stream1"
-                    })
-
-            logger.info(f"Port scan found {len(cameras)} potential cameras")
+            logger.info(f"Port scan identified {len(cameras)} cameras")
 
         except Exception as e:
             logger.error(f"Port scan error: {e}")
@@ -1460,6 +1551,8 @@ class CameraProcessor:
                     preprocessing=cam_config.get('preprocessing', 'auto'),
                     template_name=cam_config.get('template_name', ''),
                     use_template_matching=cam_config.get('use_template_matching', False),
+                    min_value=cam_config.get('min_value'),
+                    max_value=cam_config.get('max_value'),
                 )
                 self.cameras[camera.name] = camera
                 logger.info(f"Loaded camera: {camera.name}")
@@ -1941,6 +2034,19 @@ class CameraProcessor:
 
         result = self.extract_value(camera, frame)
 
+        # Filter out values outside expected range (if configured)
+        if result.value is not None:
+            out_of_range = False
+            if camera.min_value is not None and result.value < camera.min_value:
+                logger.info(f"{camera.name}: Value {result.value} below min {camera.min_value}, ignoring")
+                out_of_range = True
+            if camera.max_value is not None and result.value > camera.max_value:
+                logger.info(f"{camera.name}: Value {result.value} above max {camera.max_value}, ignoring")
+                out_of_range = True
+            if out_of_range:
+                result.error = f"Value {result.value} out of expected range ({camera.min_value or '-∞'} to {camera.max_value or '+∞'})"
+                result.value = None
+
         # Generate AI scene description if enabled
         ai_config = AIService.load_config()
         if ai_config.enabled_for_description:
@@ -1968,18 +2074,72 @@ class CameraProcessor:
         if camera.name not in self.history:
             self.history[camera.name] = []
 
+        # Save ROI image for history
+        history_id = f"{int(result.timestamp * 1000)}"
+        roi_image_id = None
+        try:
+            # Extract ROI area from frame
+            if camera.roi_width > 0 and camera.roi_height > 0:
+                x, y = camera.roi_x, camera.roi_y
+                w, h = camera.roi_width, camera.roi_height
+                img_h, img_w = frame.shape[:2]
+                x = max(0, min(x, img_w - 1))
+                y = max(0, min(y, img_h - 1))
+                w = min(w, img_w - x)
+                h = min(h, img_h - y)
+                roi_frame = frame[y:y+h, x:x+w]
+            else:
+                roi_frame = frame
+
+            # Save ROI thumbnail (resize to save space)
+            max_dim = 200
+            roi_h, roi_w = roi_frame.shape[:2]
+            if roi_w > max_dim or roi_h > max_dim:
+                scale = max_dim / max(roi_w, roi_h)
+                new_w, new_h = int(roi_w * scale), int(roi_h * scale)
+                roi_frame = cv2.resize(roi_frame, (new_w, new_h))
+
+            # Save to history images folder
+            safe_name = re.sub(r'[^\w\-]', '_', camera.name)
+            camera_img_path = Path(HISTORY_IMAGES_PATH) / safe_name
+            camera_img_path.mkdir(parents=True, exist_ok=True)
+            img_path = camera_img_path / f"{history_id}.jpg"
+            cv2.imwrite(str(img_path), roi_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            roi_image_id = history_id
+        except Exception as e:
+            logger.debug(f"Failed to save history ROI image: {e}")
+
+        # Get AI provider name if used
+        ai_provider = None
+        ai_config = AIService.load_config()
+        if ai_config.enabled_for_ocr:
+            ai_provider = ai_config.provider
+
         self.history[camera.name].append({
             'value': result.value,
             'timestamp': result.timestamp,
             'confidence': result.confidence,
             'raw_text': result.raw_text,
             'error': result.error,
-            'video_description': result.video_description
+            'video_description': result.video_description,
+            'roi_image_id': roi_image_id,
+            'ocr_provider': ai_provider or 'tesseract'
         })
 
-        # Keep only last MAX_HISTORY entries
+        # Keep only last MAX_HISTORY entries and clean up old images
         if len(self.history[camera.name]) > self.MAX_HISTORY:
+            old_entries = self.history[camera.name][:-self.MAX_HISTORY]
             self.history[camera.name] = self.history[camera.name][-self.MAX_HISTORY:]
+            # Clean up old images
+            safe_name = re.sub(r'[^\w\-]', '_', camera.name)
+            for entry in old_entries:
+                if entry.get('roi_image_id'):
+                    try:
+                        old_img = Path(HISTORY_IMAGES_PATH) / safe_name / f"{entry['roi_image_id']}.jpg"
+                        if old_img.exists():
+                            old_img.unlink()
+                    except:
+                        pass
 
         # Save history to persistent storage
         self._save_history()
@@ -2884,6 +3044,97 @@ WEB_UI = '''
             margin-right: 8px;
             font-size: 12px;
         }
+        .history-thumbnail {
+            width: 50px;
+            height: 35px;
+            object-fit: cover;
+            border-radius: 4px;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .history-thumbnail:hover {
+            transform: scale(1.1);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .history-thumbnail-placeholder {
+            width: 50px;
+            height: 35px;
+            background: var(--bg);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-3);
+            font-size: 10px;
+        }
+        .history-detail-dialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1001;
+            padding: 20px;
+        }
+        .history-detail-content {
+            background: var(--card-bg);
+            border-radius: 12px;
+            max-width: 600px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .history-detail-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .history-detail-header h3 {
+            margin: 0;
+            font-size: 16px;
+        }
+        .history-detail-body {
+            padding: 20px;
+        }
+        .history-detail-image {
+            width: 100%;
+            max-height: 300px;
+            object-fit: contain;
+            border-radius: 8px;
+            background: var(--bg);
+            margin-bottom: 16px;
+        }
+        .history-detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .history-detail-item {
+            background: var(--bg);
+            padding: 12px;
+            border-radius: 6px;
+        }
+        .history-detail-item label {
+            font-size: 11px;
+            color: var(--text-3);
+            text-transform: uppercase;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .history-detail-item .value {
+            font-size: 15px;
+            font-weight: 600;
+        }
+        .history-detail-item.full-width {
+            grid-column: 1 / -1;
+        }
         .history-tabs {
             display: flex;
             gap: 8px;
@@ -3300,8 +3551,53 @@ WEB_UI = '''
 
                     <div style="display: flex; gap: 8px; margin-top: 16px;">
                         <button class="btn btn-primary" onclick="saveAIConfig()">Save Configuration</button>
-                        <button class="btn btn-secondary" onclick="testAI()" id="test-ai-btn" style="display: none;">Test Connection</button>
                     </div>
+                </div>
+
+                <!-- Test AI Provider Section -->
+                <div class="card" id="ai-test-section" style="display: none;">
+                    <div class="card-title">Test AI Provider</div>
+                    <p style="font-size: 13px; color: var(--text-3); margin-bottom: 16px;">
+                        Test the configured AI/OCR provider with an image.
+                    </p>
+
+                    <div class="form-group">
+                        <label class="form-label">Image Source</label>
+                        <select id="ai-test-source" class="form-input" onchange="onAITestSourceChange()">
+                            <option value="upload">Upload Image</option>
+                            <option value="camera">Camera Live Preview</option>
+                        </select>
+                    </div>
+
+                    <div id="ai-test-upload-section">
+                        <div class="form-group">
+                            <label class="form-label">Select Image</label>
+                            <input type="file" id="ai-test-file" accept="image/*" class="form-input" onchange="onAITestFileSelect()">
+                        </div>
+                        <div id="ai-test-preview-upload" style="margin-bottom: 16px; display: none;">
+                            <img id="ai-test-preview-img" style="max-width: 100%; max-height: 200px; border-radius: 6px; border: 1px solid var(--border);">
+                        </div>
+                    </div>
+
+                    <div id="ai-test-camera-section" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label">Select Camera</label>
+                            <select id="ai-test-camera" class="form-input" onchange="onAITestCameraChange()">
+                                <option value="">-- Select Camera --</option>
+                            </select>
+                        </div>
+                        <div id="ai-test-preview-camera" style="margin-bottom: 16px; display: none;">
+                            <p style="font-size: 12px; color: var(--text-3); margin-bottom: 8px;">Camera Preview (ROI area highlighted):</p>
+                            <img id="ai-test-camera-img" style="max-width: 100%; max-height: 200px; border-radius: 6px; border: 1px solid var(--border);">
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" onclick="testAIProvider()" id="test-ai-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                        </svg>
+                        Test AI Provider
+                    </button>
                 </div>
 
                 <div class="card" id="ai-test-results" style="display: none;">
@@ -3424,6 +3720,18 @@ WEB_UI = '''
                             <option value="Hz">Hz (Frequency)</option>
                             <option value="RPM">RPM (Rotation)</option>
                         </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Min Value (Optional)</label>
+                        <input type="number" id="camera-min-value" class="form-input" placeholder="e.g., 0" step="any">
+                        <p style="font-size: 11px; color: var(--text-3); margin-top: 4px;">Ignore readings below this value</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Max Value (Optional)</label>
+                        <input type="number" id="camera-max-value" class="form-input" placeholder="e.g., 100" step="any">
+                        <p style="font-size: 11px; color: var(--text-3); margin-top: 4px;">Ignore readings above this value</p>
                     </div>
                 </div>
                 <div class="form-group">
@@ -3653,6 +3961,7 @@ WEB_UI = '''
 
         let historyData = {};
         let selectedHistoryCamera = null;
+        let historyViewMode = 'table';  // 'table', 'card', 'chart'
 
         async function loadHistory() {
             try {
@@ -3684,61 +3993,309 @@ WEB_UI = '''
                         onclick="selectHistoryCamera('${name}')">${name}</button>
             `).join('');
 
-            // Render table for selected camera
+            // View mode toggle
+            const viewModeHtml = `
+                <div style="display: flex; gap: 4px; margin-left: auto;">
+                    <button class="btn btn-sm ${historyViewMode === 'table' ? 'btn-primary' : 'btn-secondary'}" onclick="setHistoryViewMode('table')" title="Table View">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="3" y1="9" x2="21" y2="9"></line>
+                            <line x1="3" y1="15" x2="21" y2="15"></line>
+                            <line x1="9" y1="3" x2="9" y2="21"></line>
+                        </svg>
+                    </button>
+                    <button class="btn btn-sm ${historyViewMode === 'card' ? 'btn-primary' : 'btn-secondary'}" onclick="setHistoryViewMode('card')" title="Card View">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <rect x="3" y="3" width="7" height="7"></rect>
+                            <rect x="14" y="3" width="7" height="7"></rect>
+                            <rect x="14" y="14" width="7" height="7"></rect>
+                            <rect x="3" y="14" width="7" height="7"></rect>
+                        </svg>
+                    </button>
+                    <button class="btn btn-sm ${historyViewMode === 'chart' ? 'btn-primary' : 'btn-secondary'}" onclick="setHistoryViewMode('chart')" title="Chart View">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <line x1="18" y1="20" x2="18" y2="10"></line>
+                            <line x1="12" y1="20" x2="12" y2="4"></line>
+                            <line x1="6" y1="20" x2="6" y2="14"></line>
+                        </svg>
+                    </button>
+                </div>
+            `;
+
             const history = historyData[selectedHistoryCamera] || [];
             const camera = cameras[selectedHistoryCamera];
             const unit = camera?.unit || '';
 
-            let tableHtml = '';
+            let contentHtml = '';
             if (history.length > 0) {
-                const rows = history.slice().reverse().map((entry, index) => {
-                    const time = new Date(entry.timestamp * 1000).toLocaleString();
-                    const confidence = entry.confidence || 0;
-                    const isLowConfidence = confidence < 80;
-                    const valueClass = isLowConfidence ? 'low-confidence' : '';
-                    const valueDisplay = entry.error
-                        ? `<span class="error-cell">${entry.error}</span>`
-                        : `<span class="${valueClass}">${entry.value !== null ? entry.value : '--'} ${unit}</span>`;
-
-                    // Confidence bar
-                    const barClass = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
-                    const confidenceDisplay = entry.confidence
-                        ? `<span class="confidence-text">${confidence.toFixed(0)}%</span><div class="confidence-bar"><div class="confidence-bar-fill ${barClass}" style="width: ${confidence}%"></div></div>`
-                        : '--';
-
-                    return `
-                        <tr>
-                            <td class="order-cell">${index + 1}</td>
-                            <td>${time}</td>
-                            <td class="value-cell">${valueDisplay}</td>
-                            <td>${confidenceDisplay}</td>
-                            <td>${entry.raw_text || '--'}</td>
-                        </tr>
-                    `;
-                }).join('');
-
-                tableHtml = `
-                    <table class="history-table">
-                        <thead>
-                            <tr>
-                                <th class="order-header">#</th>
-                                <th>Time</th>
-                                <th class="value-header">Value</th>
-                                <th>Confidence</th>
-                                <th>Raw Text</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                    </table>
-                `;
+                if (historyViewMode === 'table') {
+                    contentHtml = renderHistoryTable(history, unit);
+                } else if (historyViewMode === 'card') {
+                    contentHtml = renderHistoryCards(history, unit);
+                } else if (historyViewMode === 'chart') {
+                    contentHtml = renderHistoryChart(history, unit);
+                }
             } else {
-                tableHtml = '<p style="color: var(--text-3);">No readings yet for this camera</p>';
+                contentHtml = '<p style="color: var(--text-3);">No readings yet for this camera</p>';
             }
 
             container.innerHTML = `
-                <div class="history-tabs">${tabs}</div>
-                ${tableHtml}
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
+                    <div class="history-tabs" style="margin-bottom: 0;">${tabs}</div>
+                    ${viewModeHtml}
+                </div>
+                ${contentHtml}
             `;
+
+            // If chart mode, render the chart
+            if (historyViewMode === 'chart' && history.length > 0) {
+                renderHistoryChartCanvas(history, unit);
+            }
+        }
+
+        function renderHistoryTable(history, unit) {
+            const rows = history.slice().reverse().map((entry, index) => {
+                const time = new Date(entry.timestamp * 1000).toLocaleString();
+                const confidence = entry.confidence || 0;
+                const isLowConfidence = confidence < 80;
+                const valueClass = isLowConfidence ? 'low-confidence' : '';
+                const valueDisplay = entry.error
+                    ? `<span class="error-cell">${entry.error}</span>`
+                    : `<span class="${valueClass}">${entry.value !== null ? entry.value : '--'} ${unit}</span>`;
+
+                // Confidence bar
+                const barClass = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
+                const confidenceDisplay = entry.confidence
+                    ? `<span class="confidence-text">${confidence.toFixed(0)}%</span><div class="confidence-bar"><div class="confidence-bar-fill ${barClass}" style="width: ${confidence}%"></div></div>`
+                    : '--';
+
+                // Thumbnail
+                const thumbnailHtml = entry.roi_image_id
+                    ? `<img class="history-thumbnail" src="api/history-image/${encodeURIComponent(selectedHistoryCamera)}/${entry.roi_image_id}" onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')" onerror="this.outerHTML='<div class=\\'history-thumbnail-placeholder\\'>N/A</div>'">`
+                    : '<div class="history-thumbnail-placeholder">N/A</div>';
+
+                return `
+                    <tr onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')" style="cursor: pointer;">
+                        <td class="order-cell">${index + 1}</td>
+                        <td style="width: 60px;">${thumbnailHtml}</td>
+                        <td>${time}</td>
+                        <td class="value-cell">${valueDisplay}</td>
+                        <td>${confidenceDisplay}</td>
+                        <td>${entry.ocr_provider || 'tesseract'}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            return `
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th class="order-header">#</th>
+                            <th>ROI</th>
+                            <th>Time</th>
+                            <th class="value-header">Value</th>
+                            <th>Confidence</th>
+                            <th>Provider</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            `;
+        }
+
+        function renderHistoryCards(history, unit) {
+            const cards = history.slice().reverse().map((entry, index) => {
+                const time = new Date(entry.timestamp * 1000).toLocaleString();
+                const confidence = entry.confidence || 0;
+                const isLowConfidence = confidence < 80;
+                const valueClass = isLowConfidence ? 'low-confidence' : '';
+                const barClass = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
+
+                const thumbnailHtml = entry.roi_image_id
+                    ? `<img style="width: 100%; height: 80px; object-fit: cover; border-radius: 6px;" src="api/history-image/${encodeURIComponent(selectedHistoryCamera)}/${entry.roi_image_id}" onerror="this.style.display='none'">`
+                    : '';
+
+                return `
+                    <div style="background: var(--bg-3); border-radius: 8px; padding: 12px; cursor: pointer;" onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')">
+                        ${thumbnailHtml}
+                        <div style="font-size: 24px; font-weight: 700; color: ${isLowConfidence ? 'var(--error)' : 'var(--primary)'}; margin: 8px 0;">
+                            ${entry.value !== null ? entry.value : '--'} ${unit}
+                        </div>
+                        <div style="font-size: 12px; color: var(--text-3);">${time}</div>
+                        <div style="margin-top: 8px;">
+                            <div class="confidence-bar" style="width: 100%;"><div class="confidence-bar-fill ${barClass}" style="width: ${confidence}%"></div></div>
+                            <div style="font-size: 11px; color: var(--text-3); margin-top: 4px;">${confidence.toFixed(0)}% • ${entry.ocr_provider || 'tesseract'}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `<div class="grid grid-3" style="gap: 12px;">${cards}</div>`;
+        }
+
+        function renderHistoryChart(history, unit) {
+            return `
+                <div style="background: var(--bg-3); border-radius: 8px; padding: 16px;">
+                    <canvas id="history-chart" height="250"></canvas>
+                </div>
+            `;
+        }
+
+        function renderHistoryChartCanvas(history, unit) {
+            const canvas = document.getElementById('history-chart');
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width - 32;
+            canvas.height = 250;
+
+            const values = history.map(e => e.value).filter(v => v !== null);
+            if (values.length === 0) return;
+
+            const minVal = Math.min(...values);
+            const maxVal = Math.max(...values);
+            const range = maxVal - minVal || 1;
+            const padding = { top: 30, right: 20, bottom: 40, left: 50 };
+            const chartWidth = canvas.width - padding.left - padding.right;
+            const chartHeight = canvas.height - padding.top - padding.bottom;
+
+            // Clear canvas
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-3').trim() || '#1a1a2e';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw grid lines
+            ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 5; i++) {
+                const y = padding.top + (chartHeight / 5) * i;
+                ctx.beginPath();
+                ctx.moveTo(padding.left, y);
+                ctx.lineTo(canvas.width - padding.right, y);
+                ctx.stroke();
+            }
+
+            // Draw Y axis labels
+            ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            ctx.font = '11px system-ui';
+            ctx.textAlign = 'right';
+            for (let i = 0; i <= 5; i++) {
+                const val = maxVal - (range / 5) * i;
+                const y = padding.top + (chartHeight / 5) * i;
+                ctx.fillText(val.toFixed(1), padding.left - 8, y + 4);
+            }
+
+            // Draw line chart
+            ctx.strokeStyle = '#3b82f6';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+
+            history.forEach((entry, i) => {
+                if (entry.value === null) return;
+                const x = padding.left + (i / (history.length - 1 || 1)) * chartWidth;
+                const y = padding.top + chartHeight - ((entry.value - minVal) / range) * chartHeight;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+
+            // Draw points
+            ctx.fillStyle = '#3b82f6';
+            history.forEach((entry, i) => {
+                if (entry.value === null) return;
+                const x = padding.left + (i / (history.length - 1 || 1)) * chartWidth;
+                const y = padding.top + chartHeight - ((entry.value - minVal) / range) * chartHeight;
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // X axis label
+            ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            ctx.textAlign = 'center';
+            ctx.fillText('Time →', canvas.width / 2, canvas.height - 8);
+
+            // Y axis label
+            ctx.save();
+            ctx.translate(12, canvas.height / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText(`Value (${unit})`, 0, 0);
+            ctx.restore();
+        }
+
+        function setHistoryViewMode(mode) {
+            historyViewMode = mode;
+            renderHistory();
+        }
+
+        function showHistoryDetail(entry, unit) {
+            const time = new Date(entry.timestamp * 1000).toLocaleString();
+            const confidence = entry.confidence || 0;
+            const barClass = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
+
+            const imageHtml = entry.roi_image_id
+                ? `<img class="history-detail-image" src="api/history-image/${encodeURIComponent(selectedHistoryCamera)}/${entry.roi_image_id}" onerror="this.style.display='none'">`
+                : '';
+
+            const dialog = document.createElement('div');
+            dialog.className = 'history-detail-dialog';
+            dialog.onclick = (e) => { if (e.target === dialog) dialog.remove(); };
+            dialog.innerHTML = `
+                <div class="history-detail-content">
+                    <div class="history-detail-header">
+                        <h3>Extraction Details</h3>
+                        <button class="modal-close" onclick="this.closest('.history-detail-dialog').remove()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="history-detail-body">
+                        ${imageHtml}
+                        <div class="history-detail-grid">
+                            <div class="history-detail-item">
+                                <label>Value</label>
+                                <div class="value" style="color: ${confidence < 80 ? 'var(--error)' : 'var(--primary)'};">
+                                    ${entry.value !== null ? entry.value : '--'} ${unit}
+                                </div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>Date & Time</label>
+                                <div class="value">${time}</div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>OCR Provider</label>
+                                <div class="value">${entry.ocr_provider || 'tesseract'}</div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>Confidence</label>
+                                <div class="value">
+                                    ${confidence.toFixed(1)}%
+                                    <div class="confidence-bar" style="margin-top: 4px;"><div class="confidence-bar-fill ${barClass}" style="width: ${confidence}%"></div></div>
+                                </div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>Raw Text</label>
+                                <div class="value">${entry.raw_text || '--'}</div>
+                            </div>
+                            ${entry.video_description ? `
+                            <div class="history-detail-item full-width">
+                                <label>Video Description</label>
+                                <div class="value" style="font-weight: normal; font-size: 13px;">${entry.video_description}</div>
+                            </div>
+                            ` : ''}
+                            ${entry.error ? `
+                            <div class="history-detail-item full-width">
+                                <label>Error</label>
+                                <div class="value" style="color: var(--error);">${entry.error}</div>
+                            </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(dialog);
         }
 
         function selectHistoryCamera(name) {
@@ -3917,7 +4474,9 @@ WEB_UI = '''
             document.getElementById('camera-username').value = '';
             document.getElementById('camera-password').value = '';
             document.getElementById('camera-value-name').value = 'Value';
-            document.getElementById('camera-unit').value = '';
+            document.getElementById('camera-unit').value = '°C';
+            document.getElementById('camera-min-value').value = '';
+            document.getElementById('camera-max-value').value = '';
             document.getElementById('camera-preprocessing').value = 'auto';
             document.getElementById('camera-template').value = '';
             document.getElementById('camera-use-template').checked = false;
@@ -3943,6 +4502,8 @@ WEB_UI = '''
             document.getElementById('camera-password').value = cam.password || '';
             document.getElementById('camera-value-name').value = cam.value_name || 'Value';
             document.getElementById('camera-unit').value = cam.unit || '';
+            document.getElementById('camera-min-value').value = cam.min_value !== null && cam.min_value !== undefined ? cam.min_value : '';
+            document.getElementById('camera-max-value').value = cam.max_value !== null && cam.max_value !== undefined ? cam.max_value : '';
             document.getElementById('camera-preprocessing').value = cam.preprocessing || 'auto';
             document.getElementById('camera-template').value = cam.template_name || '';
             document.getElementById('camera-use-template').checked = cam.use_template_matching || false;
@@ -4091,6 +4652,9 @@ WEB_UI = '''
                 return;
             }
 
+            const minValInput = document.getElementById('camera-min-value').value;
+            const maxValInput = document.getElementById('camera-max-value').value;
+
             const data = {
                 name: name,
                 stream_url: url,
@@ -4098,6 +4662,8 @@ WEB_UI = '''
                 password: document.getElementById('camera-password').value,
                 value_name: document.getElementById('camera-value-name').value || 'Value',
                 unit: document.getElementById('camera-unit').value,
+                min_value: minValInput !== '' ? parseFloat(minValInput) : null,
+                max_value: maxValInput !== '' ? parseFloat(maxValInput) : null,
                 preprocessing: document.getElementById('camera-preprocessing').value,
                 template_name: document.getElementById('camera-template').value,
                 use_template_matching: document.getElementById('camera-use-template').checked,
@@ -5146,17 +5712,17 @@ WEB_UI = '''
             const modelHint = document.getElementById('ai-model-hint');
             const modelGroup = document.getElementById('ai-model').parentElement;
             const descriptionCheckbox = document.getElementById('ai-enable-description').parentElement;
-            const testBtn = document.getElementById('test-ai-btn');
+            const testSection = document.getElementById('ai-test-section');
 
             const cloudOcrProviders = ['google-vision', 'google-docai', 'azure-ocr', 'aws-textract'];
             const isCloudOcr = cloudOcrProviders.includes(provider);
 
             if (provider === 'none') {
                 configFields.style.display = 'none';
-                testBtn.style.display = 'none';
+                testSection.style.display = 'none';
             } else {
                 configFields.style.display = 'block';
-                testBtn.style.display = 'inline-flex';
+                testSection.style.display = 'block';
 
                 // Show/hide URL field
                 const needsUrl = provider === 'ollama' || provider === 'custom' || provider === 'azure-ocr' || provider === 'google-docai';
@@ -5234,28 +5800,91 @@ WEB_UI = '''
             }
         }
 
-        async function testAI() {
+        let aiTestImageBase64 = null;
+
+        function onAITestSourceChange() {
+            const source = document.getElementById('ai-test-source').value;
+            document.getElementById('ai-test-upload-section').style.display = source === 'upload' ? 'block' : 'none';
+            document.getElementById('ai-test-camera-section').style.display = source === 'camera' ? 'block' : 'none';
+            aiTestImageBase64 = null;
+
+            if (source === 'camera') {
+                // Populate camera dropdown
+                const select = document.getElementById('ai-test-camera');
+                const cameraNames = Object.keys(cameras);
+                select.innerHTML = '<option value="">-- Select Camera --</option>' +
+                    cameraNames.map(name => `<option value="${name}">${name}</option>`).join('');
+            }
+        }
+
+        function onAITestFileSelect() {
+            const file = document.getElementById('ai-test-file').files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                aiTestImageBase64 = e.target.result.split(',')[1];  // Remove data:image/...;base64, prefix
+                document.getElementById('ai-test-preview-img').src = e.target.result;
+                document.getElementById('ai-test-preview-upload').style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function onAITestCameraChange() {
+            const cameraName = document.getElementById('ai-test-camera').value;
+            if (!cameraName) {
+                document.getElementById('ai-test-preview-camera').style.display = 'none';
+                aiTestImageBase64 = null;
+                return;
+            }
+
+            // Fetch camera preview with ROI
+            try {
+                const res = await fetch(`api/preview/${encodeURIComponent(cameraName)}?roi=true`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.frame) {
+                        aiTestImageBase64 = data.roi_frame || data.frame;
+                        document.getElementById('ai-test-camera-img').src = 'data:image/png;base64,' + data.frame;
+                        document.getElementById('ai-test-preview-camera').style.display = 'block';
+                    }
+                }
+            } catch (e) {
+                toast('Failed to load camera preview', 'error');
+            }
+        }
+
+        async function testAIProvider() {
             const testBtn = document.getElementById('test-ai-btn');
             const resultsCard = document.getElementById('ai-test-results');
             const resultsContent = document.getElementById('ai-test-content');
 
-            // Need a camera to test
-            const cameraNames = Object.keys(cameras);
-            if (cameraNames.length === 0) {
-                toast('Add a camera first to test AI', 'error');
+            const source = document.getElementById('ai-test-source').value;
+            let imageBase64 = aiTestImageBase64;
+            let cameraName = null;
+
+            if (source === 'camera') {
+                cameraName = document.getElementById('ai-test-camera').value;
+                if (!cameraName) {
+                    toast('Please select a camera', 'error');
+                    return;
+                }
+            } else if (!imageBase64) {
+                toast('Please select an image first', 'error');
                 return;
             }
 
             testBtn.disabled = true;
-            testBtn.textContent = 'Testing...';
+            testBtn.innerHTML = '<div class="loading" style="width: 16px; height: 16px;"></div> Testing...';
             resultsCard.style.display = 'block';
-            resultsContent.innerHTML = '<div class="loading"></div><p>Testing AI connection...</p>';
+            resultsContent.innerHTML = '<div class="loading"></div><p style="text-align: center; margin-top: 12px;">Testing AI provider...</p>';
 
             try {
+                const payload = imageBase64 ? { image: imageBase64 } : { camera: cameraName };
                 const res = await fetch('api/ai-test', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ camera: cameraNames[0] })
+                    body: JSON.stringify(payload)
                 });
 
                 const data = await res.json();
@@ -5296,7 +5925,9 @@ WEB_UI = '''
             }
 
             testBtn.disabled = false;
-            testBtn.textContent = 'Test Connection';
+            testBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg> Test AI Provider`;
         }
 
         // Load AI config when visiting AI settings page
@@ -5379,6 +6010,8 @@ def add_camera():
         'preprocessing': data.get('preprocessing', 'auto'),
         'template_name': data.get('template_name', ''),
         'use_template_matching': data.get('use_template_matching', False),
+        'min_value': data.get('min_value'),
+        'max_value': data.get('max_value'),
     })
 
     if processor.save_config(cameras_list):
@@ -5411,6 +6044,8 @@ def update_camera(name):
                 'preprocessing': data.get('preprocessing', cam.preprocessing),
                 'template_name': data.get('template_name', cam.template_name),
                 'use_template_matching': data.get('use_template_matching', cam.use_template_matching),
+                'min_value': data.get('min_value', cam.min_value),
+                'max_value': data.get('max_value', cam.max_value),
             })
         else:
             cameras_list.append(asdict(cam))
@@ -5679,6 +6314,18 @@ def get_saved_roi_image(camera_name, roi_id):
         return Response(f.read(), mimetype='image/png')
 
 
+@app.route('/api/history-image/<camera_name>/<image_id>')
+def get_history_image(camera_name, image_id):
+    """Get history ROI image."""
+    safe_name = re.sub(r'[^\w\-]', '_', camera_name)
+    img_path = Path(HISTORY_IMAGES_PATH) / safe_name / f"{image_id}.jpg"
+    if not img_path.exists():
+        return jsonify({'error': 'Image not found'}), 404
+
+    with open(img_path, 'rb') as f:
+        return Response(f.read(), mimetype='image/jpeg')
+
+
 @app.route('/api/discover', methods=['POST'])
 def discover_cameras():
     """Discover cameras on the network using ONVIF, direct probing, and port scanning."""
@@ -5749,38 +6396,59 @@ def save_ai_config():
 
 @app.route('/api/ai-test', methods=['POST'])
 def test_ai():
-    """Test AI connection with a sample image."""
+    """Test AI connection with a sample image or camera."""
     data = request.json
     camera_name = data.get('camera')
+    image_base64 = data.get('image')
 
-    if not camera_name:
-        return jsonify({'error': 'Camera name required'}), 400
+    if not camera_name and not image_base64:
+        return jsonify({'error': 'Camera name or image required'}), 400
 
-    camera_config = processor.cameras.get(camera_name)
-    if not camera_config:
-        return jsonify({'error': f'Camera not found: {camera_name}'}), 404
+    # Get image from camera if no uploaded image
+    if not image_base64:
+        camera_config = processor.cameras.get(camera_name)
+        if not camera_config:
+            return jsonify({'error': f'Camera not found: {camera_name}'}), 404
 
-    # Capture frame
-    frame = processor.capture_frame(camera_config)
-    if frame is None:
-        return jsonify({'error': 'Failed to capture frame'}), 500
+        # Capture frame
+        frame, capture_error = processor.capture_frame(camera_config)
+        if frame is None or capture_error:
+            return jsonify({'error': capture_error or 'Failed to capture frame'}), 500
 
-    # Convert to base64
-    _, buffer = cv2.imencode('.jpg', frame)
-    image_base64 = base64.b64encode(buffer).decode('utf-8')
+        # Extract ROI if defined
+        if camera_config.roi_width > 0 and camera_config.roi_height > 0:
+            x, y = camera_config.roi_x, camera_config.roi_y
+            w, h = camera_config.roi_width, camera_config.roi_height
+            img_h, img_w = frame.shape[:2]
+            x = max(0, min(x, img_w - 1))
+            y = max(0, min(y, img_h - 1))
+            w = min(w, img_w - x)
+            h = min(h, img_h - y)
+            roi_frame = frame[y:y+h, x:x+w]
+            _, buffer = cv2.imencode('.jpg', roi_frame)
+            image_base64 = base64.b64encode(buffer).decode('utf-8')
+        else:
+            _, buffer = cv2.imencode('.jpg', frame)
+            image_base64 = base64.b64encode(buffer).decode('utf-8')
 
     result = {'success': True}
 
     # Test scene description
     config = AIService.load_config()
     if config.enabled_for_description:
-        description = AIService.describe_scene(image_base64)
-        result['description'] = description
+        try:
+            description = AIService.describe_scene(image_base64)
+            result['description'] = description
+        except Exception as e:
+            result['description_error'] = str(e)
 
     # Test OCR
     if config.enabled_for_ocr:
-        ocr_result = AIService.enhance_ocr(image_base64)
-        result['ocr'] = ocr_result
+        try:
+            ocr_result = AIService.enhance_ocr(image_base64)
+            result['ocr'] = ocr_result
+        except Exception as e:
+            result['ocr_error'] = str(e)
 
     return jsonify(result)
 

@@ -3,16 +3,25 @@
 ## [1.2.15] - 2026
 
 ### Added
+- **ROI Thumbnails in Value History**: Shows cropped ROI images for each extraction
+- **History Detail Dialog**: Click on any history entry to view full details (image, value, date, OCR provider, confidence, video description)
+- **Value History View Modes**: Switch between Table, Card, and Chart views
+- **Value Range Filtering**: Set min/max expected values to ignore bad OCR readings
+- **AI Provider Test with Upload**: Upload images or use camera preview to test OCR providers
 - Camera icon thumbnails in Network Discovery results
 - Direct ONVIF device probing for cameras that don't respond to WS-Discovery
 - ONVIF port information shown in discovery results
+- OCR provider tracking for each extraction (shows Tesseract or AI provider used)
 
 ### Improved
-- Network Discovery reliability with multiple discovery methods
+- Network Discovery with HTTP-based camera detection (finds cameras like Tapo)
+- Port scanner now detects camera-specific ports (2020 for Tapo, 1935 for RTMP)
 - Better camera placeholder display when credentials are required
 - Password masking in camera URLs on the Cameras page
+- Default unit now set to °C in Add Camera form
 
 ### Fixed
+- AI test button now properly handles capture frame tuple return
 - ONVIF WS-Discovery now sends multiple probes for better reliability
 - Discovery now binds to local network interface
 
