@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.27] - 2026
+
+### Fixed
+- Fixed Dockerfile build error: separated torch installation with correct `--index-url` for CPU-only version
+
 ## [1.2.26] - 2026
 
 ### Added
