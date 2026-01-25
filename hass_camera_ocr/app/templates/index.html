@@ -1314,9 +1314,17 @@
                 <div class="card">
                     <div class="card-title">AI Provider Configuration</div>
                     <p style="font-size: 13px; color: var(--text-3); margin-bottom: 16px;">
-                        Configure an AI provider to enhance OCR accuracy and generate video scene descriptions.
+                        Configure AI provider per camera for OCR enhancement and video scene descriptions.
                     </p>
 
+                    <div class="form-group">
+                        <label class="form-label">Select Camera</label>
+                        <select id="ai-camera-select" class="form-input" onchange="onAICameraChange()">
+                            <option value="">-- Select Camera --</option>
+                        </select>
+                    </div>
+
+                    <div id="ai-camera-config" style="display: none;">
                     <div class="form-group">
                         <label class="form-label">AI Provider</label>
                         <select id="ai-provider" class="form-input" onchange="onAIProviderChange()">
@@ -1387,6 +1395,7 @@
 
                     <div style="display: flex; gap: 8px; margin-top: 16px;">
                         <button class="btn btn-primary" onclick="saveAIConfig()">Save Configuration</button>
+                    </div>
                     </div>
                 </div>
 
@@ -3862,24 +3871,39 @@
         };
 
         async function loadAIConfig() {
-            try {
-                const res = await fetch('api/ai-config');
-                const config = await res.json();
+            // Populate camera selector
+            const select = document.getElementById('ai-camera-select');
+            select.innerHTML = '<option value="">-- Select Camera --</option>';
+            for (const [name, camera] of Object.entries(cameras)) {
+                select.innerHTML += `<option value="${name}">${name}</option>`;
+            }
+            document.getElementById('ai-camera-config').style.display = 'none';
+        }
 
-                document.getElementById('ai-provider').value = config.provider;
-                document.getElementById('ai-url').value = config.api_url || '';
-                document.getElementById('ai-model').value = config.model || '';
-                document.getElementById('ai-region').value = config.region || '';
-                document.getElementById('ai-enable-ocr').checked = config.enabled_for_ocr;
-                document.getElementById('ai-enable-description').checked = config.enabled_for_description;
+        async function onAICameraChange() {
+            const cameraName = document.getElementById('ai-camera-select').value;
+            const configSection = document.getElementById('ai-camera-config');
+
+            if (!cameraName) {
+                configSection.style.display = 'none';
+                return;
+            }
+
+            configSection.style.display = 'block';
+
+            // Load camera's AI config
+            const camera = cameras[cameraName];
+            if (camera) {
+                document.getElementById('ai-provider').value = camera.ai_provider || 'none';
+                document.getElementById('ai-url').value = camera.ai_api_url || '';
+                document.getElementById('ai-model').value = camera.ai_model || '';
+                document.getElementById('ai-region').value = camera.ai_region || '';
+                document.getElementById('ai-enable-ocr').checked = camera.ai_enabled_for_ocr || false;
+                document.getElementById('ai-enable-description').checked = camera.ai_enabled_for_description || false;
+                document.getElementById('ai-apikey').value = '';
+                document.getElementById('ai-apikey').placeholder = camera.ai_api_key ? '••••••••••••••••' : 'Enter API key';
 
                 onAIProviderChange();
-
-                if (config.has_api_key) {
-                    document.getElementById('ai-apikey').placeholder = '••••••••••••••••';
-                }
-            } catch (e) {
-                console.error('Failed to load AI config:', e);
             }
         }
 
@@ -3949,6 +3973,12 @@
         }
 
         async function saveAIConfig() {
+            const cameraName = document.getElementById('ai-camera-select').value;
+            if (!cameraName) {
+                toast('Please select a camera first', 'error');
+                return;
+            }
+
             const provider = document.getElementById('ai-provider').value;
             const apiKey = document.getElementById('ai-apikey').value;
             const apiUrl = document.getElementById('ai-url').value;
@@ -3958,22 +3988,33 @@
             const enableDescription = document.getElementById('ai-enable-description').checked;
 
             try {
-                const res = await fetch('api/ai-config', {
-                    method: 'POST',
+                // Save AI config to camera
+                const updateData = {
+                    ai_provider: provider,
+                    ai_api_url: apiUrl,
+                    ai_model: model,
+                    ai_region: region,
+                    ai_enabled_for_ocr: enableOcr,
+                    ai_enabled_for_description: enableDescription
+                };
+
+                // Only include API key if user entered a new one
+                if (apiKey) {
+                    updateData.ai_api_key = apiKey;
+                }
+
+                const res = await fetch(`api/cameras/${encodeURIComponent(cameraName)}`, {
+                    method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        provider,
-                        api_key: apiKey,
-                        api_url: apiUrl,
-                        model,
-                        region,
-                        enabled_for_ocr: enableOcr,
-                        enabled_for_description: enableDescription
-                    })
+                    body: JSON.stringify(updateData)
                 });
 
                 if (res.ok) {
-                    toast('AI configuration saved', 'success');
+                    toast('AI configuration saved for ' + cameraName, 'success');
+                    // Reload cameras to get updated config
+                    await loadCameras();
+                    // Update local reference
+                    onAICameraChange();
                 } else {
                     toast('Failed to save configuration', 'error');
                 }

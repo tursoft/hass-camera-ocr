@@ -71,6 +71,14 @@ class CameraConfig:
     use_template_matching: bool = False
     min_value: Optional[float] = None  # Expected minimum value (for filtering bad OCR)
     max_value: Optional[float] = None  # Expected maximum value (for filtering bad OCR)
+    # AI configuration per camera
+    ai_provider: str = "none"  # none, openai, anthropic, google, ollama, custom, google-vision, azure-ocr, aws-textract
+    ai_api_key: str = ""
+    ai_api_url: str = ""  # For Ollama, custom endpoints
+    ai_model: str = ""
+    ai_region: str = ""  # AWS region for Textract
+    ai_enabled_for_ocr: bool = False
+    ai_enabled_for_description: bool = False
 
 
 @dataclass
@@ -927,22 +935,37 @@ class AIService:
         }
 
     @classmethod
-    def describe_scene(cls, image_base64: str) -> str:
+    def describe_scene(cls, image_base64: str, camera: CameraConfig = None) -> str:
         """Generate scene description using AI."""
-        config = cls.load_config()
+        # Use camera-specific config if provided, otherwise fall back to global
+        if camera and camera.ai_provider != 'none':
+            provider = camera.ai_provider
+            enabled = camera.ai_enabled_for_description
+            api_key = camera.ai_api_key
+            api_url = camera.ai_api_url
+            model = camera.ai_model
+            region = camera.ai_region
+        else:
+            config = cls.load_config()
+            provider = config.provider
+            enabled = config.enabled_for_description
+            api_key = config.api_key
+            api_url = config.api_url
+            model = config.model
+            region = config.region
 
-        if not config.enabled_for_description or config.provider == 'none':
+        if not enabled or provider == 'none':
             return ""
 
         try:
-            if config.provider == 'openai' or config.provider == 'custom':
-                return cls._call_openai(image_base64, "scene")
-            elif config.provider == 'anthropic':
-                return cls._call_anthropic(image_base64, "scene")
-            elif config.provider == 'google':
-                return cls._call_google(image_base64, "scene")
-            elif config.provider == 'ollama':
-                return cls._call_ollama(image_base64, "scene")
+            if provider == 'openai' or provider == 'custom':
+                return cls._call_openai(image_base64, "scene", api_key, api_url, model)
+            elif provider == 'anthropic':
+                return cls._call_anthropic(image_base64, "scene", api_key, model)
+            elif provider == 'google':
+                return cls._call_google(image_base64, "scene", api_key, model)
+            elif provider == 'ollama':
+                return cls._call_ollama(image_base64, "scene", api_url, model)
         except Exception as e:
             logger.error(f"AI scene description error: {e}")
             return f"Error: {str(e)}"
@@ -950,32 +973,47 @@ class AIService:
         return ""
 
     @classmethod
-    def enhance_ocr(cls, image_base64: str, roi_image_base64: str = None) -> Optional[str]:
+    def enhance_ocr(cls, image_base64: str, roi_image_base64: str = None, camera: CameraConfig = None) -> Optional[str]:
         """Use AI to extract/verify OCR value."""
-        config = cls.load_config()
+        # Use camera-specific config if provided, otherwise fall back to global
+        if camera and camera.ai_provider != 'none':
+            provider = camera.ai_provider
+            enabled = camera.ai_enabled_for_ocr
+            api_key = camera.ai_api_key
+            api_url = camera.ai_api_url
+            model = camera.ai_model
+            region = camera.ai_region
+        else:
+            config = cls.load_config()
+            provider = config.provider
+            enabled = config.enabled_for_ocr
+            api_key = config.api_key
+            api_url = config.api_url
+            model = config.model
+            region = config.region
 
-        if not config.enabled_for_ocr or config.provider == 'none':
+        if not enabled or provider == 'none':
             return None
 
         image_to_use = roi_image_base64 or image_base64
 
         try:
-            if config.provider == 'openai' or config.provider == 'custom':
-                return cls._call_openai(image_to_use, "ocr")
-            elif config.provider == 'anthropic':
-                return cls._call_anthropic(image_to_use, "ocr")
-            elif config.provider == 'google':
-                return cls._call_google(image_to_use, "ocr")
-            elif config.provider == 'ollama':
-                return cls._call_ollama(image_to_use, "ocr")
-            elif config.provider == 'google-vision':
-                return cls._call_google_vision(image_to_use)
-            elif config.provider == 'google-docai':
-                return cls._call_google_docai(image_to_use)
-            elif config.provider == 'azure-ocr':
-                return cls._call_azure_ocr(image_to_use)
-            elif config.provider == 'aws-textract':
-                return cls._call_aws_textract(image_to_use)
+            if provider == 'openai' or provider == 'custom':
+                return cls._call_openai(image_to_use, "ocr", api_key, api_url, model)
+            elif provider == 'anthropic':
+                return cls._call_anthropic(image_to_use, "ocr", api_key, model)
+            elif provider == 'google':
+                return cls._call_google(image_to_use, "ocr", api_key, model)
+            elif provider == 'ollama':
+                return cls._call_ollama(image_to_use, "ocr", api_url, model)
+            elif provider == 'google-vision':
+                return cls._call_google_vision(image_to_use, api_key)
+            elif provider == 'google-docai':
+                return cls._call_google_docai(image_to_use, api_key, api_url)
+            elif provider == 'azure-ocr':
+                return cls._call_azure_ocr(image_to_use, api_key, api_url)
+            elif provider == 'aws-textract':
+                return cls._call_aws_textract(image_to_use, api_key, region)
         except Exception as e:
             logger.error(f"AI OCR error: {e}")
 
@@ -991,16 +1029,21 @@ class AIService:
         return ""
 
     @classmethod
-    def _call_openai(cls, image_base64: str, task: str) -> str:
+    def _call_openai(cls, image_base64: str, task: str, api_key: str = None, api_url: str = None, model: str = None) -> str:
         """Call OpenAI API or OpenAI-compatible custom endpoint."""
         import urllib.request
 
-        config = cls.load_config()
-        model = config.model or cls.DEFAULT_MODELS['openai']
+        if not api_key:
+            config = cls.load_config()
+            api_key = config.api_key
+            api_url = api_url or config.api_url
+            model = model or config.model
 
-        # Use custom URL if provider is 'custom', otherwise use OpenAI default
-        if config.provider == 'custom' and config.api_url:
-            api_url = config.api_url.rstrip('/')
+        model = model or cls.DEFAULT_MODELS['openai']
+
+        # Use custom URL if provided, otherwise use OpenAI default
+        if api_url:
+            api_url = api_url.rstrip('/')
             if not api_url.endswith('/chat/completions'):
                 api_url = f'{api_url}/chat/completions'
         else:
@@ -1008,7 +1051,7 @@ class AIService:
 
         headers = {
             'Content-Type': 'application/json',
-            'Authorization': f'Bearer {config.api_key}'
+            'Authorization': f'Bearer {api_key}'
         }
 
         data = {
@@ -1035,16 +1078,20 @@ class AIService:
             return result['choices'][0]['message']['content'].strip()
 
     @classmethod
-    def _call_anthropic(cls, image_base64: str, task: str) -> str:
+    def _call_anthropic(cls, image_base64: str, task: str, api_key: str = None, model: str = None) -> str:
         """Call Anthropic API."""
         import urllib.request
 
-        config = cls.load_config()
-        model = config.model or cls.DEFAULT_MODELS['anthropic']
+        if not api_key:
+            config = cls.load_config()
+            api_key = config.api_key
+            model = model or config.model
+
+        model = model or cls.DEFAULT_MODELS['anthropic']
 
         headers = {
             'Content-Type': 'application/json',
-            'x-api-key': config.api_key,
+            'x-api-key': api_key,
             'anthropic-version': '2023-06-01'
         }
 
@@ -1072,14 +1119,18 @@ class AIService:
             return result['content'][0]['text'].strip()
 
     @classmethod
-    def _call_google(cls, image_base64: str, task: str) -> str:
+    def _call_google(cls, image_base64: str, task: str, api_key: str = None, model: str = None) -> str:
         """Call Google Gemini API."""
         import urllib.request
 
-        config = cls.load_config()
-        model = config.model or cls.DEFAULT_MODELS['google']
+        if not api_key:
+            config = cls.load_config()
+            api_key = config.api_key
+            model = model or config.model
 
-        url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={config.api_key}'
+        model = model or cls.DEFAULT_MODELS['google']
+
+        url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}'
 
         data = {
             'contents': [{
@@ -1102,13 +1153,17 @@ class AIService:
             return result['candidates'][0]['content']['parts'][0]['text'].strip()
 
     @classmethod
-    def _call_ollama(cls, image_base64: str, task: str) -> str:
+    def _call_ollama(cls, image_base64: str, task: str, api_url: str = None, model: str = None) -> str:
         """Call Ollama API (local)."""
         import urllib.request
 
-        config = cls.load_config()
-        model = config.model or cls.DEFAULT_MODELS['ollama']
-        api_url = config.api_url or 'http://localhost:11434'
+        if not api_url:
+            config = cls.load_config()
+            api_url = config.api_url
+            model = model or config.model
+
+        model = model or cls.DEFAULT_MODELS['ollama']
+        api_url = api_url or 'http://localhost:11434'
 
         data = {
             'model': model,
@@ -1129,13 +1184,15 @@ class AIService:
             return result.get('response', '').strip()
 
     @classmethod
-    def _call_google_vision(cls, image_base64: str) -> str:
+    def _call_google_vision(cls, image_base64: str, api_key: str = None) -> str:
         """Call Google Cloud Vision API for OCR."""
         import urllib.request
 
-        config = cls.load_config()
+        if not api_key:
+            config = cls.load_config()
+            api_key = config.api_key
 
-        url = f'https://vision.googleapis.com/v1/images:annotate?key={config.api_key}'
+        url = f'https://vision.googleapis.com/v1/images:annotate?key={api_key}'
 
         data = {
             'requests': [{
@@ -1164,15 +1221,18 @@ class AIService:
             return 'none'
 
     @classmethod
-    def _call_google_docai(cls, image_base64: str) -> str:
+    def _call_google_docai(cls, image_base64: str, api_key: str = None, api_url: str = None) -> str:
         """Call Google Document AI API for OCR."""
         import urllib.request
 
-        config = cls.load_config()
+        if not api_key:
+            config = cls.load_config()
+            api_key = config.api_key
+            api_url = api_url or config.api_url
 
         # Document AI requires project ID and processor ID in the URL
         # Format: api_url should be like: projects/PROJECT_ID/locations/LOCATION/processors/PROCESSOR_ID
-        processor_path = config.api_url or ''
+        processor_path = api_url or ''
         if not processor_path:
             logger.error("Google Document AI requires processor path in API URL field")
             return 'none'
@@ -1215,12 +1275,16 @@ class AIService:
             return 'none'
 
     @classmethod
-    def _call_azure_ocr(cls, image_base64: str) -> str:
+    def _call_azure_ocr(cls, image_base64: str, api_key: str = None, api_url: str = None) -> str:
         """Call Azure Computer Vision API for OCR."""
         import urllib.request
 
-        config = cls.load_config()
-        endpoint = config.api_url or 'https://westus.api.cognitive.microsoft.com'
+        if not api_key:
+            config = cls.load_config()
+            api_key = config.api_key
+            api_url = api_url or config.api_url
+
+        endpoint = api_url or 'https://westus.api.cognitive.microsoft.com'
         endpoint = endpoint.rstrip('/')
 
         # First, submit the read request
@@ -1233,7 +1297,7 @@ class AIService:
             data=image_data,
             headers={
                 'Content-Type': 'application/octet-stream',
-                'Ocp-Apim-Subscription-Key': config.api_key
+                'Ocp-Apim-Subscription-Key': api_key
             },
             method='POST'
         )
@@ -1272,15 +1336,19 @@ class AIService:
         return 'none'
 
     @classmethod
-    def _call_aws_textract(cls, image_base64: str) -> str:
+    def _call_aws_textract(cls, image_base64: str, api_key: str = None, region: str = None) -> str:
         """Call AWS Textract API for OCR."""
         import urllib.request
         import hashlib
         import hmac
         from datetime import datetime
 
-        config = cls.load_config()
-        region = config.region or 'us-east-1'
+        if not api_key:
+            config = cls.load_config()
+            api_key = config.api_key
+            region = region or config.region
+
+        region = region or 'us-east-1'
 
         # AWS Textract requires signature v4 authentication
         # For simplicity, we'll use boto3 if available, otherwise basic API
@@ -1289,8 +1357,8 @@ class AIService:
             client = boto3.client(
                 'textract',
                 region_name=region,
-                aws_access_key_id=config.api_key.split(':')[0] if ':' in config.api_key else config.api_key,
-                aws_secret_access_key=config.api_key.split(':')[1] if ':' in config.api_key else ''
+                aws_access_key_id=api_key.split(':')[0] if ':' in api_key else api_key,
+                aws_secret_access_key=api_key.split(':')[1] if ':' in api_key else ''
             )
 
             image_data = base64.b64decode(image_base64)
@@ -2049,13 +2117,12 @@ class CameraProcessor:
                 result.error = f"Value {result.value} out of expected range ({camera.min_value or '-∞'} to {camera.max_value or '+∞'})"
                 result.value = None
 
-        # Generate AI scene description if enabled
-        ai_config = AIService.load_config()
-        if ai_config.enabled_for_description:
+        # Generate AI scene description if enabled (use camera-specific config or global)
+        if camera.ai_enabled_for_description or (camera.ai_provider == 'none' and AIService.load_config().enabled_for_description):
             try:
                 _, buffer = cv2.imencode('.jpg', frame)
                 image_base64 = base64.b64encode(buffer).decode('utf-8')
-                result.video_description = AIService.describe_scene(image_base64)
+                result.video_description = AIService.describe_scene(image_base64, camera)
             except Exception as e:
                 logger.error(f"AI scene description error: {e}")
 
@@ -2227,8 +2294,17 @@ def get_camera_history(camera_name):
 
 @app.route('/api/cameras', methods=['GET'])
 def get_cameras():
-    """Get camera configurations."""
-    return jsonify({name: asdict(cam) for name, cam in processor.cameras.items()})
+    """Get camera configurations (with sensitive data masked)."""
+    result = {}
+    for name, cam in processor.cameras.items():
+        cam_dict = asdict(cam)
+        # Mask sensitive credentials
+        if cam_dict.get('password'):
+            cam_dict['password'] = '••••••••'
+        if cam_dict.get('ai_api_key'):
+            cam_dict['ai_api_key'] = '••••••••'
+        result[name] = cam_dict
+    return jsonify(result)
 
 
 @app.route('/api/cameras', methods=['POST'])
@@ -2263,6 +2339,14 @@ def add_camera():
         'use_template_matching': data.get('use_template_matching', False),
         'min_value': data.get('min_value'),
         'max_value': data.get('max_value'),
+        # AI configuration per camera
+        'ai_provider': data.get('ai_provider', 'none'),
+        'ai_api_key': data.get('ai_api_key', ''),
+        'ai_api_url': data.get('ai_api_url', ''),
+        'ai_model': data.get('ai_model', ''),
+        'ai_region': data.get('ai_region', ''),
+        'ai_enabled_for_ocr': data.get('ai_enabled_for_ocr', False),
+        'ai_enabled_for_description': data.get('ai_enabled_for_description', False),
     })
 
     if processor.save_config(cameras_list):
@@ -2297,6 +2381,14 @@ def update_camera(name):
                 'use_template_matching': data.get('use_template_matching', cam.use_template_matching),
                 'min_value': data.get('min_value', cam.min_value),
                 'max_value': data.get('max_value', cam.max_value),
+                # AI configuration per camera
+                'ai_provider': data.get('ai_provider', cam.ai_provider),
+                'ai_api_key': data.get('ai_api_key', cam.ai_api_key),
+                'ai_api_url': data.get('ai_api_url', cam.ai_api_url),
+                'ai_model': data.get('ai_model', cam.ai_model),
+                'ai_region': data.get('ai_region', cam.ai_region),
+                'ai_enabled_for_ocr': data.get('ai_enabled_for_ocr', cam.ai_enabled_for_ocr),
+                'ai_enabled_for_description': data.get('ai_enabled_for_description', cam.ai_enabled_for_description),
             })
         else:
             cameras_list.append(asdict(cam))
@@ -2684,22 +2776,40 @@ def test_ai():
 
     result = {'success': True}
 
+    # Use camera-specific config if camera was provided, otherwise global config
+    camera_config = processor.cameras.get(camera_name) if camera_name else None
+
     # Test scene description
-    config = AIService.load_config()
-    if config.enabled_for_description:
+    if camera_config and camera_config.ai_enabled_for_description:
         try:
-            description = AIService.describe_scene(image_base64)
+            description = AIService.describe_scene(image_base64, camera_config)
             result['description'] = description
         except Exception as e:
             result['description_error'] = str(e)
+    elif not camera_config:
+        config = AIService.load_config()
+        if config.enabled_for_description:
+            try:
+                description = AIService.describe_scene(image_base64)
+                result['description'] = description
+            except Exception as e:
+                result['description_error'] = str(e)
 
     # Test OCR
-    if config.enabled_for_ocr:
+    if camera_config and camera_config.ai_enabled_for_ocr:
         try:
-            ocr_result = AIService.enhance_ocr(image_base64)
+            ocr_result = AIService.enhance_ocr(image_base64, camera=camera_config)
             result['ocr'] = ocr_result
         except Exception as e:
             result['ocr_error'] = str(e)
+    elif not camera_config:
+        config = AIService.load_config()
+        if config.enabled_for_ocr:
+            try:
+                ocr_result = AIService.enhance_ocr(image_base64)
+                result['ocr'] = ocr_result
+            except Exception as e:
+                result['ocr_error'] = str(e)
 
     return jsonify(result)
 
