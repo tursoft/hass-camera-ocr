@@ -1,6 +1,6 @@
 name: Camera Data Extractor
 description: Extract numeric values from IP camera video streams using OCR
-version: 1.1.1
+version: 1.1.2
 slug: camera_data_extractor
 url: https://github.com/tursoft/ha-camera-data-extractor
 arch:
@@ -16,6 +16,9 @@ panel_icon: mdi:camera-enhance
 panel_title: Camera OCR
 map:
   - config:rw
+  - addon_config:rw
+backup_exclude:
+  - "*.log"
 ports:
   8099/tcp: null
 ports_description:

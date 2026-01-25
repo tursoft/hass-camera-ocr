@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.2] - 2026
+
+### Added
+- Persistent storage in /config directory - camera config survives uninstall/reinstall
+- Templates stored in /config/camera_data_extractor/templates/ for persistence
+- Auto-migration from options.json to persistent storage on first run
+
+### Fixed
+- Camera configuration now persists across add-on updates and reinstalls
+
 ## [1.1.1] - 2026
 
 ### Fixed

@@ -33,12 +33,15 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
-# Paths
+# Paths - Use /config for persistent storage across reinstalls
 OPTIONS_PATH = os.environ.get('OPTIONS_PATH', '/data/options.json')
 DATA_PATH = os.environ.get('DATA_PATH', '/data')
-TEMPLATES_PATH = os.environ.get('TEMPLATES_PATH', '/data/templates')
+CONFIG_PATH = os.environ.get('CONFIG_PATH', '/config/camera_data_extractor')
+CAMERAS_PATH = os.path.join(CONFIG_PATH, 'cameras.json')
+TEMPLATES_PATH = os.path.join(CONFIG_PATH, 'templates')
 
 # Ensure directories exist
+Path(CONFIG_PATH).mkdir(parents=True, exist_ok=True)
 Path(TEMPLATES_PATH).mkdir(parents=True, exist_ok=True)
 Path(DATA_PATH).mkdir(parents=True, exist_ok=True)
 
@@ -403,17 +406,33 @@ class CameraProcessor:
         self._thread: Optional[threading.Thread] = None
 
     def load_config(self) -> int:
-        """Load configuration from options.json."""
+        """Load configuration - first from persistent storage, then from options.json."""
         try:
-            if not os.path.exists(OPTIONS_PATH):
-                logger.warning(f"Options file not found: {OPTIONS_PATH}")
-                return 30
+            cameras_data = []
+            scan_interval = 30
 
-            with open(OPTIONS_PATH, 'r') as f:
-                options = json.load(f)
+            # First try to load from persistent storage (survives reinstalls)
+            if os.path.exists(CAMERAS_PATH):
+                logger.info(f"Loading cameras from persistent storage: {CAMERAS_PATH}")
+                with open(CAMERAS_PATH, 'r') as f:
+                    persistent_config = json.load(f)
+                cameras_data = persistent_config.get('cameras', [])
+                scan_interval = persistent_config.get('scan_interval', 30)
+
+            # If no persistent config, try options.json and migrate
+            elif os.path.exists(OPTIONS_PATH):
+                logger.info(f"Loading cameras from options.json (first run)")
+                with open(OPTIONS_PATH, 'r') as f:
+                    options = json.load(f)
+                cameras_data = options.get('cameras', [])
+                scan_interval = options.get('scan_interval', 30)
+
+                # Migrate to persistent storage
+                if cameras_data:
+                    self._save_to_persistent({'cameras': cameras_data, 'scan_interval': scan_interval})
 
             self.cameras.clear()
-            for cam_config in options.get('cameras', []):
+            for cam_config in cameras_data:
                 camera = CameraConfig(
                     name=cam_config.get('name', 'Camera'),
                     stream_url=cam_config.get('stream_url', ''),
@@ -432,33 +451,53 @@ class CameraProcessor:
                 self.cameras[camera.name] = camera
                 logger.info(f"Loaded camera: {camera.name}")
 
-            return options.get('scan_interval', 30)
+            return scan_interval
 
         except Exception as e:
             logger.error(f"Error loading config: {e}")
             return 30
 
-    def save_config(self, cameras_list: list = None, settings: dict = None):
-        """Save configuration to options.json."""
+    def _save_to_persistent(self, config: dict):
+        """Save to persistent storage in /config directory."""
         try:
-            # Load existing config
-            if os.path.exists(OPTIONS_PATH):
-                with open(OPTIONS_PATH, 'r') as f:
-                    options = json.load(f)
+            with open(CAMERAS_PATH, 'w') as f:
+                json.dump(config, f, indent=2)
+            logger.info(f"Configuration saved to persistent storage: {CAMERAS_PATH}")
+        except Exception as e:
+            logger.error(f"Error saving to persistent storage: {e}")
+
+    def save_config(self, cameras_list: list = None, settings: dict = None):
+        """Save configuration to persistent storage."""
+        try:
+            # Load existing persistent config
+            if os.path.exists(CAMERAS_PATH):
+                with open(CAMERAS_PATH, 'r') as f:
+                    config = json.load(f)
             else:
-                options = {'cameras': [], 'scan_interval': 30, 'log_level': 'info'}
+                config = {'cameras': [], 'scan_interval': 30, 'log_level': 'info'}
 
             # Update cameras if provided
             if cameras_list is not None:
-                options['cameras'] = cameras_list
+                config['cameras'] = cameras_list
 
             # Update settings if provided
             if settings:
-                options.update(settings)
+                config.update(settings)
 
-            # Save
-            with open(OPTIONS_PATH, 'w') as f:
-                json.dump(options, f, indent=2)
+            # Save to persistent storage (survives reinstalls)
+            self._save_to_persistent(config)
+
+            # Also update options.json for HA add-on config interface
+            try:
+                if os.path.exists(OPTIONS_PATH):
+                    with open(OPTIONS_PATH, 'r') as f:
+                        options = json.load(f)
+                    options['cameras'] = config.get('cameras', [])
+                    options['scan_interval'] = config.get('scan_interval', 30)
+                    with open(OPTIONS_PATH, 'w') as f:
+                        json.dump(options, f, indent=2)
+            except Exception as e:
+                logger.warning(f"Could not update options.json: {e}")
 
             # Reload config
             self.load_config()
