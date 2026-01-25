@@ -241,6 +241,130 @@
             font-size: 11px;
             color: var(--text-secondary);
         }
+
+        /* Multi-Provider List */
+        .provider-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .provider-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            background: var(--bg-3);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: grab;
+        }
+        .provider-item:active { cursor: grabbing; }
+        .provider-item.dragging { opacity: 0.5; }
+        .provider-item .drag-handle {
+            color: var(--text-3);
+            cursor: grab;
+        }
+        .provider-item .provider-name {
+            flex: 1;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .provider-item .provider-status {
+            font-size: 12px;
+            color: var(--text-3);
+        }
+        .provider-item .provider-status.configured { color: var(--success); }
+        .provider-item .provider-status.needs-config { color: var(--warning); }
+        .provider-item .provider-actions {
+            display: flex;
+            gap: 4px;
+        }
+        .provider-item .provider-btn {
+            padding: 4px 8px;
+            font-size: 12px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            cursor: pointer;
+            color: var(--text-2);
+        }
+        .provider-item .provider-btn:hover { background: var(--border); }
+        .provider-item .provider-btn.remove { color: var(--error); }
+        .add-provider-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 10px;
+            border: 2px dashed var(--border);
+            border-radius: 6px;
+            background: transparent;
+            color: var(--text-3);
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .add-provider-btn:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+        .provider-config-panel {
+            margin-top: 12px;
+            padding: 12px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+        .provider-config-panel .panel-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .provider-results-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .provider-result-item {
+            padding: 8px 12px;
+            background: var(--bg-3);
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .provider-result-item .result-provider {
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .provider-result-item .result-value {
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .provider-result-item .result-confidence {
+            font-size: 11px;
+            color: var(--text-3);
+        }
+        .provider-result-item.selected {
+            border: 1px solid var(--success);
+            background: rgba(76, 175, 80, 0.1);
+        }
+        .ml-status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .ml-status-badge.available { background: rgba(76, 175, 80, 0.2); color: var(--success); }
+        .ml-status-badge.unavailable { background: rgba(244, 67, 54, 0.2); color: var(--error); }
         .url-preview {
             background: var(--bg);
             border-radius: 6px;
@@ -1394,9 +1518,12 @@
             <!-- AI Settings Page -->
             <div id="page-ai-settings" class="page">
                 <div class="card">
-                    <div class="card-title">AI Provider Configuration</div>
+                    <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span>OCR Provider Configuration</span>
+                        <span id="ml-status-badge" class="ml-status-badge unavailable">ML: Loading...</span>
+                    </div>
                     <p style="font-size: 13px; color: var(--text-3); margin-bottom: 16px;">
-                        Configure AI provider per camera for OCR enhancement and video scene descriptions.
+                        Configure multiple OCR providers per camera. Providers run in order, best result is selected.
                     </p>
 
                     <div class="form-group">
@@ -1407,85 +1534,59 @@
                     </div>
 
                     <div id="ai-camera-config" style="display: none;">
-                    <div class="form-group">
-                        <label class="form-label">AI Provider</label>
-                        <select id="ai-provider" class="form-input" onchange="onAIProviderChange()">
-                            <option value="none">None (Disabled)</option>
-                            <optgroup label="AI Vision Models">
-                                <option value="openai">OpenAI (GPT-4o)</option>
-                                <option value="anthropic">Anthropic (Claude)</option>
-                                <option value="google">Google (Gemini)</option>
-                                <option value="ollama">Ollama (Local)</option>
-                                <option value="custom">Custom (OpenAI-compatible)</option>
-                            </optgroup>
-                            <optgroup label="Cloud OCR Services">
-                                <option value="google-vision">Google Cloud Vision</option>
-                                <option value="google-docai">Google Document AI</option>
-                                <option value="azure-ocr">Azure Computer Vision</option>
-                                <option value="aws-textract">AWS Textract</option>
-                            </optgroup>
-                        </select>
-                    </div>
-
-                    <div id="ai-config-fields" style="display: none;">
-                        <div class="form-group" id="ai-apikey-group">
-                            <label class="form-label">API Key</label>
-                            <input type="password" id="ai-apikey" class="form-input" placeholder="Enter API key">
-                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;">
-                                Your API key is stored locally and never shared.
-                            </p>
-                        </div>
-
-                        <div class="form-group" id="ai-url-group" style="display: none;">
-                            <label class="form-label" id="ai-url-label">API URL</label>
-                            <input type="text" id="ai-url" class="form-input" placeholder="http://localhost:11434">
-                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;" id="ai-url-hint">
-                                URL to your Ollama or compatible server.
-                            </p>
-                        </div>
-
-                        <div class="form-group" id="ai-region-group" style="display: none;">
-                            <label class="form-label">AWS Region</label>
-                            <input type="text" id="ai-region" class="form-input" placeholder="us-east-1">
-                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;">
-                                AWS region for Textract (e.g., us-east-1, eu-west-1)
-                            </p>
-                        </div>
-
+                        <!-- Provider List -->
                         <div class="form-group">
-                            <label class="form-label">Model (optional)</label>
-                            <input type="text" id="ai-model" class="form-input" placeholder="Leave empty for default">
-                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;" id="ai-model-hint">
-                                Default: gpt-4o
-                            </p>
+                            <label class="form-label">OCR Providers (drag to reorder)</label>
+                            <div id="provider-list" class="provider-list"></div>
+                            <button type="button" class="add-provider-btn" onclick="showAddProviderDialog()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                Add Provider
+                            </button>
                         </div>
 
-                        <div class="form-group">
-                            <label class="form-label">Features</label>
-                            <div style="display: flex; flex-direction: column; gap: 8px;">
-                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                    <input type="checkbox" id="ai-enable-ocr">
-                                    <span>Use AI to enhance OCR accuracy</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                    <input type="checkbox" id="ai-enable-description">
-                                    <span>Generate video scene descriptions</span>
-                                </label>
+                        <!-- Provider Config Panel (shows when configuring a provider) -->
+                        <div id="provider-config-panel" class="provider-config-panel" style="display: none;">
+                            <div class="panel-title">
+                                <span id="config-panel-title">Configure Provider</span>
+                                <button class="btn btn-sm" onclick="closeProviderConfig()">×</button>
                             </div>
+                            <div id="provider-config-fields"></div>
+                            <button class="btn btn-primary btn-sm" onclick="saveProviderConfig()" style="margin-top: 12px;">Save Provider Settings</button>
                         </div>
-                    </div>
 
-                    <div style="display: flex; gap: 8px; margin-top: 16px;">
-                        <button class="btn btn-primary" onclick="saveAIConfig()">Save Configuration</button>
-                    </div>
+                        <!-- ML ROI Locator Option -->
+                        <div class="form-group" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="use-ml-roi-locator">
+                                <span>Use ML to auto-locate ROI (requires trained ML model)</span>
+                            </label>
+                            <p style="font-size: 12px; color: var(--text-3); margin-top: 4px;">
+                                When enabled, uses CLIP embeddings to find ROI regions based on validated examples.
+                            </p>
+                        </div>
+
+                        <!-- Scene Description Option -->
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="ai-enable-description">
+                                <span>Generate video scene descriptions (requires AI vision provider)</span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; gap: 8px; margin-top: 16px;">
+                            <button class="btn btn-primary" onclick="saveMultiProviderConfig()">Save Configuration</button>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Test AI Provider Section -->
+                <!-- Test Providers Section -->
                 <div class="card" id="ai-test-section" style="display: none;">
-                    <div class="card-title">Test AI Provider</div>
+                    <div class="card-title">Test All Providers</div>
                     <p style="font-size: 13px; color: var(--text-3); margin-bottom: 16px;">
-                        Test the configured AI/OCR provider with an image.
+                        Test all configured providers and compare results.
                     </p>
 
                     <div class="form-group">
@@ -1519,11 +1620,11 @@
                         </div>
                     </div>
 
-                    <button class="btn btn-primary" onclick="testAIProvider()" id="test-ai-btn">
+                    <button class="btn btn-primary" onclick="testAllProviders()" id="test-ai-btn">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
                             <polygon points="5 3 19 12 5 21 5 3"></polygon>
                         </svg>
-                        Test AI Provider
+                        Test All Providers
                     </button>
                 </div>
 
@@ -2198,6 +2299,44 @@
                 ? `<img class="history-detail-image" src="api/history-image/${encodeURIComponent(selectedHistoryCamera)}/${entry.roi_image_id}" onerror="this.style.display='none'">`
                 : '';
 
+            // Build provider results section if available
+            let providerResultsHtml = '';
+            if (entry.provider_results && entry.provider_results.length > 0) {
+                const providerNames = {
+                    'tesseract': 'Tesseract OCR',
+                    'ml': 'ML (TrOCR)',
+                    'openai': 'OpenAI',
+                    'anthropic': 'Anthropic',
+                    'google': 'Google Gemini',
+                    'ollama': 'Ollama',
+                    'google-vision': 'Google Vision',
+                    'azure-ocr': 'Azure OCR',
+                    'aws-textract': 'AWS Textract'
+                };
+                providerResultsHtml = `
+                    <div class="history-detail-item full-width" style="margin-top: 12px;">
+                        <label>All Provider Results</label>
+                        <div class="provider-results-list" style="margin-top: 8px;">
+                            ${entry.provider_results.map(r => {
+                                const isSelected = r.provider === entry.ocr_provider;
+                                const pName = providerNames[r.provider] || r.provider;
+                                return `
+                                    <div class="provider-result-item ${isSelected ? 'selected' : ''}">
+                                        <div>
+                                            <div class="result-provider">${pName} ${isSelected ? '✓' : ''}</div>
+                                            <div class="result-confidence">${r.confidence ? r.confidence.toFixed(0) + '%' : ''}</div>
+                                        </div>
+                                        <div class="result-value" style="color: ${r.error ? 'var(--error)' : 'var(--text-1)'}">
+                                            ${r.error || r.value || '--'}
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
             const dialog = document.createElement('div');
             dialog.className = 'history-detail-dialog';
             dialog.onclick = (e) => { if (e.target === dialog) dialog.remove(); };
@@ -2226,7 +2365,7 @@
                                 <div class="value">${time}</div>
                             </div>
                             <div class="history-detail-item">
-                                <label>OCR Provider</label>
+                                <label>Selected Provider</label>
                                 <div class="value">${entry.ocr_provider || 'tesseract'}</div>
                             </div>
                             <div class="history-detail-item">
@@ -2252,6 +2391,7 @@
                                 <div class="value" style="color: var(--error);">${entry.error}</div>
                             </div>
                             ` : ''}
+                            ${providerResultsHtml}
                         </div>
                         ${entry.roi_image_id ? `
                         <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
@@ -4224,21 +4364,42 @@
             }, 3000);
         }
 
-        // AI Settings
-        const AI_MODEL_HINTS = {
-            'none': '',
-            'openai': 'Default: gpt-4o (supports vision)',
-            'anthropic': 'Default: claude-sonnet-4-20250514',
-            'google': 'Default: gemini-1.5-flash',
-            'ollama': 'Default: llava (requires vision model)',
-            'custom': 'Enter model name from your provider',
-            'google-vision': 'Uses TEXT_DETECTION (no model needed)',
-            'google-docai': 'Requires processor path in URL field',
-            'azure-ocr': 'Uses Read API v3.2 (no model needed)',
-            'aws-textract': 'Uses detect-document-text (no model needed)'
+        // AI/OCR Multi-Provider Settings
+        const PROVIDER_INFO = {
+            'tesseract': { name: 'Tesseract OCR', needsKey: false, needsUrl: false, local: true },
+            'ml': { name: 'ML (TrOCR)', needsKey: false, needsUrl: false, local: true },
+            'openai': { name: 'OpenAI (GPT-4o)', needsKey: true, needsUrl: false, local: false },
+            'anthropic': { name: 'Anthropic (Claude)', needsKey: true, needsUrl: false, local: false },
+            'google': { name: 'Google (Gemini)', needsKey: true, needsUrl: false, local: false },
+            'ollama': { name: 'Ollama (Local)', needsKey: false, needsUrl: true, local: true },
+            'custom': { name: 'Custom API', needsKey: true, needsUrl: true, local: false },
+            'google-vision': { name: 'Google Cloud Vision', needsKey: true, needsUrl: false, local: false },
+            'azure-ocr': { name: 'Azure Computer Vision', needsKey: true, needsUrl: true, local: false },
+            'aws-textract': { name: 'AWS Textract', needsKey: true, needsUrl: false, needsRegion: true, local: false }
         };
 
+        let currentProviders = [];
+        let providerConfigs = {};
+        let editingProvider = null;
+        let mlStatus = { available: false };
+
         async function loadAIConfig() {
+            // Load ML status
+            try {
+                const res = await fetch('api/ml/status');
+                mlStatus = await res.json();
+                const badge = document.getElementById('ml-status-badge');
+                if (mlStatus.available) {
+                    badge.textContent = 'ML: Available';
+                    badge.className = 'ml-status-badge available';
+                } else {
+                    badge.textContent = 'ML: Not Available';
+                    badge.className = 'ml-status-badge unavailable';
+                }
+            } catch (e) {
+                mlStatus = { available: false };
+            }
+
             // Populate camera selector
             const select = document.getElementById('ai-camera-select');
             select.innerHTML = '<option value="">-- Select Camera --</option>';
@@ -4251,125 +4412,243 @@
         async function onAICameraChange() {
             const cameraName = document.getElementById('ai-camera-select').value;
             const configSection = document.getElementById('ai-camera-config');
+            const testSection = document.getElementById('ai-test-section');
 
             if (!cameraName) {
                 configSection.style.display = 'none';
+                testSection.style.display = 'none';
                 return;
             }
 
             configSection.style.display = 'block';
+            testSection.style.display = 'block';
 
-            // Load camera's AI config
+            // Load camera's provider config
             const camera = cameras[cameraName];
             if (camera) {
-                document.getElementById('ai-provider').value = camera.ai_provider || 'none';
-                document.getElementById('ai-url').value = camera.ai_api_url || '';
-                document.getElementById('ai-model').value = camera.ai_model || '';
-                document.getElementById('ai-region').value = camera.ai_region || '';
-                document.getElementById('ai-enable-ocr').checked = camera.ai_enabled_for_ocr || false;
+                currentProviders = camera.ocr_providers || ['tesseract'];
+                providerConfigs = camera.provider_configs || {};
+                document.getElementById('use-ml-roi-locator').checked = camera.use_ml_roi_locator || false;
                 document.getElementById('ai-enable-description').checked = camera.ai_enabled_for_description || false;
-                document.getElementById('ai-apikey').value = '';
-                document.getElementById('ai-apikey').placeholder = camera.ai_api_key ? '••••••••••••••••' : 'Enter API key';
 
-                onAIProviderChange();
+                // Migrate legacy single provider if needed
+                if (currentProviders.length === 0 && camera.ai_provider && camera.ai_provider !== 'none') {
+                    currentProviders = ['tesseract', camera.ai_provider];
+                    providerConfigs[camera.ai_provider] = {
+                        api_key: camera.ai_api_key,
+                        api_url: camera.ai_api_url,
+                        model: camera.ai_model,
+                        region: camera.ai_region
+                    };
+                }
+
+                renderProviderList();
             }
         }
 
-        function onAIProviderChange() {
-            const provider = document.getElementById('ai-provider').value;
-            const configFields = document.getElementById('ai-config-fields');
-            const urlGroup = document.getElementById('ai-url-group');
-            const urlLabel = document.getElementById('ai-url-label');
-            const urlHint = document.getElementById('ai-url-hint');
-            const apiKeyGroup = document.getElementById('ai-apikey-group');
-            const regionGroup = document.getElementById('ai-region-group');
-            const modelHint = document.getElementById('ai-model-hint');
-            const modelGroup = document.getElementById('ai-model').parentElement;
-            const descriptionCheckbox = document.getElementById('ai-enable-description').parentElement;
-            const testSection = document.getElementById('ai-test-section');
+        function renderProviderList() {
+            const list = document.getElementById('provider-list');
+            if (currentProviders.length === 0) {
+                list.innerHTML = '<p style="color: var(--text-3); font-size: 13px;">No providers configured. Add at least one provider.</p>';
+                return;
+            }
 
-            const cloudOcrProviders = ['google-vision', 'google-docai', 'azure-ocr', 'aws-textract'];
-            const isCloudOcr = cloudOcrProviders.includes(provider);
+            list.innerHTML = currentProviders.map((provider, index) => {
+                const info = PROVIDER_INFO[provider] || { name: provider, needsKey: false };
+                const config = providerConfigs[provider] || {};
+                const isConfigured = !info.needsKey || config.api_key;
+                const statusClass = isConfigured ? 'configured' : 'needs-config';
+                const statusText = isConfigured ? '✓ Ready' : '⚠ Needs config';
 
-            if (provider === 'none') {
-                configFields.style.display = 'none';
-                testSection.style.display = 'none';
-            } else {
-                configFields.style.display = 'block';
-                testSection.style.display = 'block';
+                return `
+                    <div class="provider-item" draggable="true" data-provider="${provider}" data-index="${index}">
+                        <span class="drag-handle">☰</span>
+                        <span class="provider-name">${info.name}</span>
+                        <span class="provider-status ${statusClass}">${statusText}</span>
+                        <div class="provider-actions">
+                            ${info.needsKey || info.needsUrl ? `<button class="provider-btn" onclick="configureProvider('${provider}')">Configure</button>` : ''}
+                            <button class="provider-btn remove" onclick="removeProvider(${index})">×</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
 
-                // Show/hide URL field
-                const needsUrl = provider === 'ollama' || provider === 'custom' || provider === 'azure-ocr' || provider === 'google-docai';
-                urlGroup.style.display = needsUrl ? 'block' : 'none';
+            // Add drag-and-drop handlers
+            setupProviderDragDrop();
+        }
 
-                // Update URL hint based on provider
-                if (provider === 'ollama') {
-                    urlLabel.textContent = 'API URL';
-                    urlHint.textContent = 'URL to your Ollama server (e.g., http://localhost:11434)';
-                } else if (provider === 'custom') {
-                    urlLabel.textContent = 'API URL';
-                    urlHint.textContent = 'Base URL of OpenAI-compatible API (e.g., http://localhost:1234/v1)';
-                } else if (provider === 'azure-ocr') {
-                    urlLabel.textContent = 'Endpoint URL';
-                    urlHint.textContent = 'Azure endpoint (e.g., https://westus.api.cognitive.microsoft.com)';
-                } else if (provider === 'google-docai') {
-                    urlLabel.textContent = 'Processor Path';
-                    urlHint.textContent = 'Format: projects/PROJECT_ID/locations/LOCATION/processors/PROCESSOR_ID';
-                }
+        function setupProviderDragDrop() {
+            const items = document.querySelectorAll('.provider-item');
+            items.forEach(item => {
+                item.addEventListener('dragstart', e => {
+                    e.dataTransfer.setData('text/plain', item.dataset.index);
+                    item.classList.add('dragging');
+                });
+                item.addEventListener('dragend', () => item.classList.remove('dragging'));
+                item.addEventListener('dragover', e => e.preventDefault());
+                item.addEventListener('drop', e => {
+                    e.preventDefault();
+                    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+                    const toIndex = parseInt(item.dataset.index);
+                    if (fromIndex !== toIndex) {
+                        const [moved] = currentProviders.splice(fromIndex, 1);
+                        currentProviders.splice(toIndex, 0, moved);
+                        renderProviderList();
+                    }
+                });
+            });
+        }
 
-                // Show/hide region field for AWS
-                regionGroup.style.display = provider === 'aws-textract' ? 'block' : 'none';
+        function showAddProviderDialog() {
+            const availableProviders = Object.entries(PROVIDER_INFO)
+                .filter(([key]) => !currentProviders.includes(key))
+                .map(([key, info]) => `<option value="${key}">${info.name}${info.local ? ' (Local)' : ''}</option>`)
+                .join('');
 
-                // Show API key for all except Ollama
-                apiKeyGroup.style.display = provider === 'ollama' ? 'none' : 'block';
+            if (!availableProviders) {
+                toast('All providers already added', 'info');
+                return;
+            }
 
-                // Update API key hint for AWS
-                const apiKeyHint = apiKeyGroup.querySelector('p');
-                if (provider === 'aws-textract') {
-                    apiKeyHint.textContent = 'Format: ACCESS_KEY_ID:SECRET_ACCESS_KEY';
-                } else {
-                    apiKeyHint.textContent = 'Your API key is stored locally and never shared.';
-                }
+            const html = `
+                <div class="form-group">
+                    <label class="form-label">Select Provider</label>
+                    <select id="new-provider-select" class="form-input">
+                        <option value="">-- Select --</option>
+                        ${availableProviders}
+                    </select>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="addSelectedProvider()">Add Provider</button>
+            `;
 
-                // Hide model field and description checkbox for cloud OCR services
-                modelGroup.style.display = isCloudOcr ? 'none' : 'block';
-                descriptionCheckbox.style.display = isCloudOcr ? 'none' : 'flex';
+            document.getElementById('config-panel-title').textContent = 'Add Provider';
+            document.getElementById('provider-config-fields').innerHTML = html;
+            document.getElementById('provider-config-panel').style.display = 'block';
+            editingProvider = null;
+        }
 
-                // Update model hint
-                modelHint.textContent = AI_MODEL_HINTS[provider] || 'Enter your model name';
+        function addSelectedProvider() {
+            const provider = document.getElementById('new-provider-select').value;
+            if (!provider) {
+                toast('Please select a provider', 'error');
+                return;
+            }
+
+            currentProviders.push(provider);
+            providerConfigs[provider] = providerConfigs[provider] || {};
+            renderProviderList();
+            closeProviderConfig();
+
+            const info = PROVIDER_INFO[provider];
+            if (info.needsKey || info.needsUrl) {
+                configureProvider(provider);
             }
         }
 
-        async function saveAIConfig() {
+        function removeProvider(index) {
+            currentProviders.splice(index, 1);
+            renderProviderList();
+        }
+
+        function configureProvider(provider) {
+            const info = PROVIDER_INFO[provider] || {};
+            const config = providerConfigs[provider] || {};
+            editingProvider = provider;
+
+            let html = '';
+
+            if (info.needsKey) {
+                html += `
+                    <div class="form-group">
+                        <label class="form-label">API Key</label>
+                        <input type="password" id="provider-api-key" class="form-input"
+                            value="${config.api_key || ''}"
+                            placeholder="${config.api_key ? '••••••••••••••••' : 'Enter API key'}">
+                    </div>
+                `;
+            }
+
+            if (info.needsUrl) {
+                const urlLabel = provider === 'azure-ocr' ? 'Endpoint URL' : 'API URL';
+                const placeholder = provider === 'ollama' ? 'http://localhost:11434' : 'https://api.example.com';
+                html += `
+                    <div class="form-group">
+                        <label class="form-label">${urlLabel}</label>
+                        <input type="text" id="provider-api-url" class="form-input"
+                            value="${config.api_url || ''}" placeholder="${placeholder}">
+                    </div>
+                `;
+            }
+
+            if (info.needsRegion) {
+                html += `
+                    <div class="form-group">
+                        <label class="form-label">AWS Region</label>
+                        <input type="text" id="provider-region" class="form-input"
+                            value="${config.region || ''}" placeholder="us-east-1">
+                    </div>
+                `;
+            }
+
+            if (['openai', 'anthropic', 'google', 'ollama', 'custom'].includes(provider)) {
+                html += `
+                    <div class="form-group">
+                        <label class="form-label">Model (optional)</label>
+                        <input type="text" id="provider-model" class="form-input"
+                            value="${config.model || ''}" placeholder="Leave empty for default">
+                    </div>
+                `;
+            }
+
+            document.getElementById('config-panel-title').textContent = `Configure ${info.name}`;
+            document.getElementById('provider-config-fields').innerHTML = html;
+            document.getElementById('provider-config-panel').style.display = 'block';
+        }
+
+        function saveProviderConfig() {
+            if (!editingProvider) return;
+
+            const config = {};
+            const apiKey = document.getElementById('provider-api-key');
+            const apiUrl = document.getElementById('provider-api-url');
+            const region = document.getElementById('provider-region');
+            const model = document.getElementById('provider-model');
+
+            if (apiKey && apiKey.value) config.api_key = apiKey.value;
+            if (apiUrl) config.api_url = apiUrl.value;
+            if (region) config.region = region.value;
+            if (model) config.model = model.value;
+
+            providerConfigs[editingProvider] = { ...(providerConfigs[editingProvider] || {}), ...config };
+            renderProviderList();
+            closeProviderConfig();
+            toast('Provider configured', 'success');
+        }
+
+        function closeProviderConfig() {
+            document.getElementById('provider-config-panel').style.display = 'none';
+            editingProvider = null;
+        }
+
+        async function saveMultiProviderConfig() {
             const cameraName = document.getElementById('ai-camera-select').value;
             if (!cameraName) {
                 toast('Please select a camera first', 'error');
                 return;
             }
 
-            const provider = document.getElementById('ai-provider').value;
-            const apiKey = document.getElementById('ai-apikey').value;
-            const apiUrl = document.getElementById('ai-url').value;
-            const model = document.getElementById('ai-model').value;
-            const region = document.getElementById('ai-region').value;
-            const enableOcr = document.getElementById('ai-enable-ocr').checked;
-            const enableDescription = document.getElementById('ai-enable-description').checked;
+            if (currentProviders.length === 0) {
+                toast('Please add at least one provider', 'error');
+                return;
+            }
 
             try {
-                // Save AI config to camera
                 const updateData = {
-                    ai_provider: provider,
-                    ai_api_url: apiUrl,
-                    ai_model: model,
-                    ai_region: region,
-                    ai_enabled_for_ocr: enableOcr,
-                    ai_enabled_for_description: enableDescription
+                    ocr_providers: currentProviders,
+                    provider_configs: providerConfigs,
+                    use_ml_roi_locator: document.getElementById('use-ml-roi-locator').checked,
+                    ai_enabled_for_description: document.getElementById('ai-enable-description').checked
                 };
-
-                // Only include API key if user entered a new one
-                if (apiKey) {
-                    updateData.ai_api_key = apiKey;
-                }
 
                 const res = await fetch(`api/cameras/${encodeURIComponent(cameraName)}`, {
                     method: 'PUT',
@@ -4378,11 +4657,8 @@
                 });
 
                 if (res.ok) {
-                    toast('AI configuration saved for ' + cameraName, 'success');
-                    // Reload cameras to get updated config
+                    toast('Configuration saved for ' + cameraName, 'success');
                     await loadCameras();
-                    // Update local reference
-                    onAICameraChange();
                 } else {
                     toast('Failed to save configuration', 'error');
                 }
@@ -4400,7 +4676,6 @@
             aiTestImageBase64 = null;
 
             if (source === 'camera') {
-                // Populate camera dropdown
                 const select = document.getElementById('ai-test-camera');
                 const cameraNames = Object.keys(cameras);
                 select.innerHTML = '<option value="">-- Select Camera --</option>' +
@@ -4414,7 +4689,7 @@
 
             const reader = new FileReader();
             reader.onload = function(e) {
-                aiTestImageBase64 = e.target.result.split(',')[1];  // Remove data:image/...;base64, prefix
+                aiTestImageBase64 = e.target.result.split(',')[1];
                 document.getElementById('ai-test-preview-img').src = e.target.result;
                 document.getElementById('ai-test-preview-upload').style.display = 'block';
             };
@@ -4429,7 +4704,6 @@
                 return;
             }
 
-            // Fetch camera preview with ROI
             try {
                 const res = await fetch(`api/preview/${encodeURIComponent(cameraName)}?roi=true`);
                 if (res.ok) {
@@ -4445,18 +4719,18 @@
             }
         }
 
-        async function testAIProvider() {
+        async function testAllProviders() {
             const testBtn = document.getElementById('test-ai-btn');
             const resultsCard = document.getElementById('ai-test-results');
             const resultsContent = document.getElementById('ai-test-content');
+            const cameraName = document.getElementById('ai-camera-select').value;
 
             const source = document.getElementById('ai-test-source').value;
             let imageBase64 = aiTestImageBase64;
-            let cameraName = null;
 
             if (source === 'camera') {
-                cameraName = document.getElementById('ai-test-camera').value;
-                if (!cameraName) {
+                const testCamera = document.getElementById('ai-test-camera').value;
+                if (!testCamera) {
                     toast('Please select a camera', 'error');
                     return;
                 }
@@ -4465,90 +4739,92 @@
                 return;
             }
 
-            // Get AI settings from form
-            const provider = document.getElementById('ai-provider').value;
-            const apiKey = document.getElementById('ai-apikey').value;
-            const apiUrl = document.getElementById('ai-apiurl').value;
-            const model = document.getElementById('ai-model').value;
-            const region = document.getElementById('ai-region').value;
-            const enableOcr = document.getElementById('ai-enable-ocr').checked;
-            const enableDescription = document.getElementById('ai-enable-description').checked;
-
-            if (!provider || provider === 'none') {
-                toast('Please select an AI provider first', 'error');
-                return;
-            }
-
-            if (!enableOcr && !enableDescription) {
-                toast('Enable OCR enhancement or scene description to test', 'error');
+            if (currentProviders.length === 0) {
+                toast('No providers configured', 'error');
                 return;
             }
 
             testBtn.disabled = true;
             testBtn.innerHTML = '<div class="loading" style="width: 16px; height: 16px;"></div> Testing...';
             resultsCard.style.display = 'block';
-            resultsContent.innerHTML = '<div class="loading"></div><p style="text-align: center; margin-top: 12px;">Testing AI provider...</p>';
+            resultsContent.innerHTML = '<div class="loading"></div><p style="text-align: center; margin-top: 12px;">Testing all providers...</p>';
 
-            try {
-                const payload = {
-                    camera: cameraName,
-                    image: imageBase64,
-                    // Pass AI settings from form
-                    provider: provider,
-                    api_key: apiKey,
-                    api_url: apiUrl,
-                    model: model,
-                    region: region,
-                    enable_ocr: enableOcr,
-                    enable_description: enableDescription
-                };
-                const res = await fetch('api/ai-test', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                const data = await res.json();
-
-                if (data.error) {
-                    resultsContent.innerHTML = `<p style="color: var(--error);">Error: ${data.error}</p>`;
-                } else {
-                    let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
-
-                    if (data.description) {
-                        html += `
-                            <div>
-                                <strong>Scene Description:</strong>
-                                <p style="background: var(--bg); padding: 12px; border-radius: 6px; margin-top: 4px;">${data.description}</p>
-                            </div>
-                        `;
+            // Test each provider
+            const results = [];
+            for (const provider of currentProviders) {
+                try {
+                    let result;
+                    if (provider === 'tesseract') {
+                        // Test via extraction endpoint
+                        const res = await fetch('api/test-extraction', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ camera_name: cameraName, image: imageBase64 })
+                        });
+                        const data = await res.json();
+                        result = { provider, value: data.value, confidence: data.confidence, error: data.error };
+                    } else if (provider === 'ml') {
+                        const res = await fetch('api/ml/test', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ image: imageBase64, camera_name: cameraName })
+                        });
+                        const data = await res.json();
+                        result = { provider, value: data.value, confidence: data.confidence, error: data.error };
+                    } else {
+                        // AI provider test
+                        const config = providerConfigs[provider] || {};
+                        const res = await fetch('api/ai-test', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                image: imageBase64,
+                                provider: provider,
+                                api_key: config.api_key,
+                                api_url: config.api_url,
+                                model: config.model,
+                                region: config.region,
+                                enable_ocr: true
+                            })
+                        });
+                        const data = await res.json();
+                        result = { provider, value: data.ocr, confidence: 85, error: data.error };
                     }
-
-                    if (data.ocr) {
-                        html += `
-                            <div>
-                                <strong>OCR Result:</strong>
-                                <p style="background: var(--bg); padding: 12px; border-radius: 6px; margin-top: 4px;">${data.ocr}</p>
-                            </div>
-                        `;
-                    }
-
-                    if (!data.description && !data.ocr) {
-                        html += '<p>No features enabled. Enable OCR enhancement or scene description above.</p>';
-                    }
-
-                    html += '</div>';
-                    resultsContent.innerHTML = html;
-                    toast('AI test completed', 'success');
+                    results.push(result);
+                } catch (e) {
+                    results.push({ provider, error: e.message, confidence: 0 });
                 }
-            } catch (e) {
-                resultsContent.innerHTML = `<p style="color: var(--error);">Error: ${e.message}</p>`;
             }
 
+            // Find best result
+            const bestResult = results.reduce((best, r) =>
+                r.value && r.confidence > (best?.confidence || 0) ? r : best, null);
+
+            // Render results
+            let html = '<div class="provider-results-list">';
+            for (const r of results) {
+                const info = PROVIDER_INFO[r.provider] || { name: r.provider };
+                const isSelected = bestResult && r.provider === bestResult.provider;
+                html += `
+                    <div class="provider-result-item ${isSelected ? 'selected' : ''}">
+                        <div>
+                            <div class="result-provider">${info.name} ${isSelected ? '✓ Best' : ''}</div>
+                            <div class="result-confidence">${r.confidence ? r.confidence.toFixed(0) + '% confidence' : ''}</div>
+                        </div>
+                        <div class="result-value" style="color: ${r.error ? 'var(--error)' : 'var(--text-1)'}">
+                            ${r.error || r.value || '--'}
+                        </div>
+                    </div>
+                `;
+            }
+            html += '</div>';
+
+            resultsContent.innerHTML = html;
             testBtn.disabled = false;
             testBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
-            </svg> Test AI Provider`;
+            </svg> Test All Providers`;
+            toast('Test completed', 'success');
         }
 
         // Load AI config when visiting AI settings page
