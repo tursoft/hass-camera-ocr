@@ -2449,13 +2449,7 @@ def capture_frame_api(camera_name):
     if error:
         return jsonify({'error': error}), 500
 
-    # Draw ROI rectangle only (value shown in sidebar, not on image)
-    if camera.roi_width > 0 and camera.roi_height > 0:
-        frame = processor.draw_roi_on_frame(
-            frame,
-            {'x': camera.roi_x, 'y': camera.roi_y, 'width': camera.roi_width, 'height': camera.roi_height}
-        )
-
+    # Don't draw ROI on frame - canvas handles ROI drawing with mode-specific styling
     _, buffer = cv2.imencode('.png', frame)
     frame_b64 = base64.b64encode(buffer).decode('utf-8')
 

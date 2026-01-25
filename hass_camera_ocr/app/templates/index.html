@@ -3111,45 +3111,60 @@
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Only draw ROI rectangle in TEST mode
-            if (previewMode === 'test' && currentROI.width > 0 && currentROI.height > 0) {
+            if (currentROI.width > 0 && currentROI.height > 0) {
                 const x = currentROI.x * imageScale;
                 const y = currentROI.y * imageScale;
                 const w = currentROI.width * imageScale;
                 const h = currentROI.height * imageScale;
 
-                // Draw semi-transparent overlay outside ROI
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-                ctx.fillRect(0, 0, canvas.width, y);
-                ctx.fillRect(0, y + h, canvas.width, canvas.height - y - h);
-                ctx.fillRect(0, y, x, h);
-                ctx.fillRect(x + w, y, canvas.width - x - w, h);
+                if (previewMode === 'test') {
+                    // TEST mode: Full overlay with dark mask, border, handles, and value
+                    // Draw semi-transparent overlay outside ROI
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                    ctx.fillRect(0, 0, canvas.width, y);
+                    ctx.fillRect(0, y + h, canvas.width, canvas.height - y - h);
+                    ctx.fillRect(0, y, x, h);
+                    ctx.fillRect(x + w, y, canvas.width - x - w, h);
 
-                // Draw ROI border
-                ctx.strokeStyle = '#03a9f4';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(x, y, w, h);
+                    // Draw ROI border
+                    ctx.strokeStyle = '#03a9f4';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x, y, w, h);
 
-                // Draw corner handles
-                const handleSize = 8;
-                ctx.fillStyle = '#03a9f4';
-                ctx.fillRect(x - handleSize/2, y - handleSize/2, handleSize, handleSize);
-                ctx.fillRect(x + w - handleSize/2, y - handleSize/2, handleSize, handleSize);
-                ctx.fillRect(x - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
-                ctx.fillRect(x + w - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
-
-                // Draw value if available
-                const val = values[document.getElementById('live-camera-select').value];
-                if (val && val.value !== null) {
-                    const label = val.value + (cameras[val.camera_name]?.unit || '');
-                    ctx.font = 'bold 16px sans-serif';
-                    const textWidth = ctx.measureText(label).width;
-
+                    // Draw corner handles
+                    const handleSize = 8;
                     ctx.fillStyle = '#03a9f4';
-                    ctx.fillRect(x, y - 25, textWidth + 12, 22);
+                    ctx.fillRect(x - handleSize/2, y - handleSize/2, handleSize, handleSize);
+                    ctx.fillRect(x + w - handleSize/2, y - handleSize/2, handleSize, handleSize);
+                    ctx.fillRect(x - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+                    ctx.fillRect(x + w - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
 
-                    ctx.fillStyle = 'white';
-                    ctx.fillText(label, x + 6, y - 8);
+                    // Draw value if available
+                    const val = values[document.getElementById('live-camera-select').value];
+                    if (val && val.value !== null) {
+                        const label = val.value + (cameras[val.camera_name]?.unit || '');
+                        ctx.font = 'bold 16px sans-serif';
+                        const textWidth = ctx.measureText(label).width;
+
+                        ctx.fillStyle = '#03a9f4';
+                        ctx.fillRect(x, y - 25, textWidth + 12, 22);
+
+                        ctx.fillStyle = 'white';
+                        ctx.fillText(label, x + 6, y - 8);
+                    }
+                } else {
+                    // EDIT mode: Only blue border for drawing feedback
+                    ctx.strokeStyle = '#03a9f4';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x, y, w, h);
+
+                    // Draw corner handles for resize
+                    const handleSize = 8;
+                    ctx.fillStyle = '#03a9f4';
+                    ctx.fillRect(x - handleSize/2, y - handleSize/2, handleSize, handleSize);
+                    ctx.fillRect(x + w - handleSize/2, y - handleSize/2, handleSize, handleSize);
+                    ctx.fillRect(x - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+                    ctx.fillRect(x + w - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
                 }
             }
         }
