@@ -3701,7 +3701,15 @@
                             </p>
                         </div>
 
-                        <p style="margin: 0 0 8px; font-weight: 600;">Tested on ${data.validated_count || 0} validated ROI(s)</p>
+                        <p style="margin: 0 0 8px; font-weight: 600;">Tested on ${data.tested_count || 0} of ${data.validated_count || 0} validated ROI(s)</p>
+                        ${data.tested_rois && data.tested_rois.length > 0 ? `
+                        <div style="background: var(--bg); padding: 8px; border-radius: 4px; font-size: 12px; margin-bottom: 12px;">
+                            <strong>ROIs used:</strong>
+                            <ul style="margin: 4px 0 0 16px; padding: 0;">
+                                ${data.tested_rois.map(r => `<li>${r.id} (expected: ${r.expected})</li>`).join('')}
+                            </ul>
+                        </div>
+                        ` : ''}
 
                         <div style="margin-top: 16px;">
                             <h4 style="margin: 0 0 8px;">Top Configurations</h4>

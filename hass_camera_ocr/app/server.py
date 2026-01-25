@@ -2972,18 +2972,25 @@ def train_ocr(camera_name):
         results = []
         best_config = {'preprocessing': 'auto', 'psm': 7, 'accuracy': 0}
 
+        tested_rois = []
         for roi_data in validated_rois:
             roi_id = roi_data.get('id')
             expected_value = str(roi_data.get('validated_value'))
 
             # Load the ROI image
             img_path = os.path.join(SAVED_ROIS_PATH, camera_name, f'{roi_id}.png')
+            logger.info(f"Training: Looking for ROI image at {img_path}")
             if not os.path.exists(img_path):
+                logger.warning(f"Training: ROI image not found: {img_path}")
                 continue
 
             img = cv2.imread(img_path)
             if img is None:
+                logger.warning(f"Training: Failed to load image: {img_path}")
                 continue
+
+            logger.info(f"Training: Testing ROI {roi_id} with expected value '{expected_value}'")
+            tested_rois.append({'id': roi_id, 'expected': expected_value})
 
             roi_results = {
                 'roi_id': roi_id,
@@ -3057,9 +3064,13 @@ def train_ocr(camera_name):
                 'total': best['total']
             }
 
+        logger.info(f"Training complete: tested {len(tested_rois)} ROIs, best config: {best_config}")
+
         return jsonify({
             'success': True,
             'validated_count': len(validated_rois),
+            'tested_count': len(tested_rois),
+            'tested_rois': tested_rois,
             'best_config': best_config,
             'ranked_configs': ranked_configs[:5],  # Top 5 configs
             'detailed_results': results
