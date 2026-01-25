@@ -3204,12 +3204,12 @@
             resultConfidence.textContent = 'Extracting...';
             resultPreview.style.display = 'none';
 
-            // Calculate actual ROI coordinates (accounting for zoom)
+            // currentROI is already in original image coordinates (getMousePos divides by zoomLevel)
             const actualROI = {
-                x: Math.round(currentROI.x / zoomLevel),
-                y: Math.round(currentROI.y / zoomLevel),
-                width: Math.round(currentROI.width / zoomLevel),
-                height: Math.round(currentROI.height / zoomLevel)
+                x: Math.round(currentROI.x),
+                y: Math.round(currentROI.y),
+                width: Math.round(currentROI.width),
+                height: Math.round(currentROI.height)
             };
 
             try {
@@ -3424,11 +3424,11 @@
             const tempCanvas = document.createElement('canvas');
             const ctx = tempCanvas.getContext('2d');
 
-            // Calculate actual ROI coordinates (accounting for zoom)
-            const roiX = Math.round(currentROI.x / zoomLevel);
-            const roiY = Math.round(currentROI.y / zoomLevel);
-            const roiW = Math.round(currentROI.width / zoomLevel);
-            const roiH = Math.round(currentROI.height / zoomLevel);
+            // currentROI is already in original image coordinates (getMousePos divides by zoomLevel)
+            const roiX = Math.round(currentROI.x);
+            const roiY = Math.round(currentROI.y);
+            const roiW = Math.round(currentROI.width);
+            const roiH = Math.round(currentROI.height);
 
             // Draw the ROI region
             tempCanvas.width = roiW;
@@ -3577,9 +3577,11 @@
 
                 for (const roi of rois) {
                     const valueEl = document.getElementById(`roi-value-${roi.id}`);
-                    if (valueEl) {
-                        valueEl.textContent = '...';
-                        valueEl.style.color = 'var(--text-3)';
+                    // Get only the first span (extracted value), preserve validated value span
+                    const extractedSpan = valueEl ? valueEl.querySelector('span:first-child') : null;
+                    if (extractedSpan) {
+                        extractedSpan.textContent = '...';
+                        extractedSpan.style.color = 'var(--text-3)';
                     }
 
                     try {
@@ -3595,24 +3597,24 @@
 
                         const data = await testRes.json();
 
-                        if (valueEl) {
+                        if (extractedSpan) {
                             if (data.success) {
-                                valueEl.textContent = data.value !== null ? data.value : '--';
-                                valueEl.style.color = data.confidence > 50 ? 'var(--success)' : 'var(--warning)';
+                                extractedSpan.textContent = data.value !== null ? data.value : '--';
+                                extractedSpan.style.color = data.confidence > 50 ? 'var(--success)' : 'var(--warning)';
 
                                 if (data.confidence > bestConfidence && data.value !== null) {
                                     bestConfidence = data.confidence;
                                     bestResult = { value: data.value, roi: roi.roi, id: roi.id };
                                 }
                             } else {
-                                valueEl.textContent = 'Error';
-                                valueEl.style.color = 'var(--error)';
+                                extractedSpan.textContent = 'Error';
+                                extractedSpan.style.color = 'var(--error)';
                             }
                         }
                     } catch (e) {
-                        if (valueEl) {
-                            valueEl.textContent = 'Error';
-                            valueEl.style.color = 'var(--error)';
+                        if (extractedSpan) {
+                            extractedSpan.textContent = 'Error';
+                            extractedSpan.style.color = 'var(--error)';
                         }
                     }
                 }
@@ -3649,12 +3651,20 @@
             // Show busy indicator on the card
             const cardEl = document.querySelector(`.saved-roi-item[data-roi-id="${roiId}"]`);
             const valueEl = document.getElementById(`roi-value-${roiId}`);
+
+            // Save validated value span if it exists (to preserve it after test)
+            const validatedSpan = valueEl ? valueEl.querySelector('.validated-value') : null;
+            const validatedValue = validatedSpan ? validatedSpan.textContent : null;
+
             if (cardEl) {
                 cardEl.style.opacity = '0.6';
                 cardEl.style.pointerEvents = 'none';
             }
-            if (valueEl) {
-                valueEl.innerHTML = '<div class="loading" style="width: 16px; height: 16px; margin: 0 auto;"></div>';
+
+            // Only show loading in extracted value span, preserve validated value
+            const extractedSpan = valueEl ? valueEl.querySelector('span:first-child') : null;
+            if (extractedSpan) {
+                extractedSpan.innerHTML = '<div class="loading" style="width: 16px; height: 16px; display: inline-block;"></div>';
             }
 
             try {
@@ -3678,18 +3688,18 @@
                     camera_name: name
                 };
 
-                if (data.success && valueEl) {
-                    valueEl.textContent = data.value !== null ? data.value : '--';
-                    valueEl.style.color = data.confidence > 50 ? 'var(--success)' : 'var(--warning)';
+                if (data.success && extractedSpan) {
+                    extractedSpan.textContent = data.value !== null ? data.value : '--';
+                    extractedSpan.style.color = data.confidence > 50 ? 'var(--success)' : 'var(--warning)';
                     toast(`Value: ${data.value} (${data.confidence.toFixed(0)}%)`, 'success');
-                } else if (valueEl) {
-                    valueEl.textContent = 'Error';
-                    valueEl.style.color = 'var(--error)';
+                } else if (extractedSpan) {
+                    extractedSpan.textContent = 'Error';
+                    extractedSpan.style.color = 'var(--error)';
                 }
             } catch (e) {
-                if (valueEl) {
-                    valueEl.textContent = 'Error';
-                    valueEl.style.color = 'var(--error)';
+                if (extractedSpan) {
+                    extractedSpan.textContent = 'Error';
+                    extractedSpan.style.color = 'var(--error)';
                 }
                 toast('Test failed', 'error');
             } finally {
