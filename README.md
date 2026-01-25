@@ -193,12 +193,15 @@ If your camera can pan/tilt/zoom, use template matching to find the correct regi
 
 | Brand | Typical RTSP URL |
 |-------|-----------------|
+| TP-Link Tapo | `rtsp://user:pass@IP:554/stream1` (HD) or `stream2` (SD) |
 | Hikvision | `rtsp://user:pass@IP:554/Streaming/Channels/101` |
 | Dahua | `rtsp://user:pass@IP:554/cam/realmonitor?channel=1&subtype=0` |
 | Reolink | `rtsp://user:pass@IP:554/h264Preview_01_main` |
 | Amcrest | `rtsp://user:pass@IP:554/cam/realmonitor?channel=1&subtype=0` |
 | Ubiquiti | `rtsp://user:pass@IP:554/live` |
 | Generic ONVIF | `rtsp://user:pass@IP:554/stream1` |
+
+> **Note for Tapo cameras**: You must create a "Camera Account" in the Tapo app (Settings → Advanced Settings → Camera Account). Use these credentials for RTSP access, not your TP-Link account credentials.
 
 ## Services
 
