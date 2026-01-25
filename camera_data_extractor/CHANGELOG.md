@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.1] - 2026
+
+### Fixed
+- Fix API URLs to use relative paths for Home Assistant ingress compatibility
+
 ## [1.1.0] - 2026
 
 ### Added

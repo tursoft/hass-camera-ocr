@@ -1626,7 +1626,7 @@ WEB_UI = '''
 
         async function loadCameras() {
             try {
-                const res = await fetch('/api/cameras');
+                const res = await fetch('api/cameras');
                 cameras = await res.json();
                 renderCameras();
                 updateStatus();
@@ -1637,7 +1637,7 @@ WEB_UI = '''
 
         async function loadValues() {
             try {
-                const res = await fetch('/api/values');
+                const res = await fetch('api/values');
                 values = await res.json();
                 renderValues();
             } catch (e) {
@@ -1647,7 +1647,7 @@ WEB_UI = '''
 
         async function loadTemplates() {
             try {
-                const res = await fetch('/api/templates');
+                const res = await fetch('api/templates');
                 templates = await res.json();
                 renderTemplates();
                 populateTemplateSelect();
@@ -1768,7 +1768,7 @@ WEB_UI = '''
             list.innerHTML = templates.map(t => `
                 <div class="template-item">
                     <div class="template-preview">
-                        <img src="/api/templates/${t.name}/image" alt="${t.name}">
+                        <img src="api/templates/${t.name}/image" alt="${t.name}">
                     </div>
                     <div class="template-info">
                         <div class="template-name">${t.name}</div>
@@ -1853,13 +1853,13 @@ WEB_UI = '''
             try {
                 let res;
                 if (editName) {
-                    res = await fetch(`/api/cameras/${encodeURIComponent(editName)}`, {
+                    res = await fetch(`api/cameras/${encodeURIComponent(editName)}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(data)
                     });
                 } else {
-                    res = await fetch('/api/cameras', {
+                    res = await fetch('api/cameras', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(data)
@@ -1883,7 +1883,7 @@ WEB_UI = '''
             if (!confirm(`Delete camera "${name}"?`)) return;
 
             try {
-                const res = await fetch(`/api/cameras/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                const res = await fetch(`api/cameras/${encodeURIComponent(name)}`, { method: 'DELETE' });
                 if (res.ok) {
                     toast('Camera deleted', 'success');
                     loadCameras();
@@ -1936,7 +1936,7 @@ WEB_UI = '''
             placeholder.innerHTML = '<div class="loading"></div><p style="margin-top: 16px;">Loading preview...</p>';
 
             try {
-                const res = await fetch(`/api/capture/${encodeURIComponent(name)}`);
+                const res = await fetch(`api/capture/${encodeURIComponent(name)}`);
                 const data = await res.json();
 
                 if (data.error) {
@@ -2080,7 +2080,7 @@ WEB_UI = '''
             const preprocessing = document.getElementById('live-preprocessing').value;
 
             try {
-                const res = await fetch('/api/test-extraction', {
+                const res = await fetch('api/test-extraction', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -2133,7 +2133,7 @@ WEB_UI = '''
             };
 
             try {
-                const res = await fetch(`/api/cameras/${encodeURIComponent(name)}`, {
+                const res = await fetch(`api/cameras/${encodeURIComponent(name)}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
@@ -2166,7 +2166,7 @@ WEB_UI = '''
             }
 
             try {
-                const res = await fetch('/api/templates', {
+                const res = await fetch('api/templates', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -2193,7 +2193,7 @@ WEB_UI = '''
             if (!confirm(`Delete template "${name}"?`)) return;
 
             try {
-                const res = await fetch(`/api/templates/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                const res = await fetch(`api/templates/${encodeURIComponent(name)}`, { method: 'DELETE' });
                 if (res.ok) {
                     toast('Template deleted', 'success');
                     loadTemplates();
@@ -2213,7 +2213,7 @@ WEB_UI = '''
             list.innerHTML = '<div class="empty-state"><div class="loading"></div><p style="margin-top: 16px;">Scanning network for cameras...</p></div>';
 
             try {
-                const res = await fetch('/api/discover', { method: 'POST' });
+                const res = await fetch('api/discover', { method: 'POST' });
                 const discovered = await res.json();
 
                 if (discovered.length === 0) {
