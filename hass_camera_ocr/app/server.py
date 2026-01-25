@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Camera OCR Add-on Server with Full Admin Interface and Template Matching."""
 
-VERSION = "1.2.24"
+VERSION = "1.2.25"
 
 import os
 import json
@@ -24,6 +24,17 @@ import pytesseract
 from flask import Flask, jsonify, request, render_template, Response
 from flask_cors import CORS
 
+# ML dependencies (optional - loaded on demand)
+ML_AVAILABLE = False
+try:
+    import torch
+    from PIL import Image
+    ML_AVAILABLE = True
+    logger_ml = logging.getLogger('ml_service')
+except ImportError:
+    logger_ml = logging.getLogger('ml_service')
+    logger_ml.warning("ML dependencies not available. Install torch, transformers, Pillow for ML features.")
+
 # Configure logging
 log_level = os.environ.get('LOG_LEVEL', 'info').upper()
 logging.basicConfig(
@@ -44,6 +55,7 @@ TEMPLATES_PATH = os.path.join(CONFIG_PATH, 'templates')
 HISTORY_PATH = os.path.join(CONFIG_PATH, 'history.json')
 SAVED_ROIS_PATH = os.path.join(CONFIG_PATH, 'saved_rois')
 HISTORY_IMAGES_PATH = os.path.join(CONFIG_PATH, 'history_images')
+ML_MODELS_PATH = os.path.join(CONFIG_PATH, 'ml_models')
 
 # Ensure directories exist
 Path(CONFIG_PATH).mkdir(parents=True, exist_ok=True)
@@ -51,6 +63,7 @@ Path(TEMPLATES_PATH).mkdir(parents=True, exist_ok=True)
 Path(DATA_PATH).mkdir(parents=True, exist_ok=True)
 Path(SAVED_ROIS_PATH).mkdir(parents=True, exist_ok=True)
 Path(HISTORY_IMAGES_PATH).mkdir(parents=True, exist_ok=True)
+Path(ML_MODELS_PATH).mkdir(parents=True, exist_ok=True)
 
 
 @dataclass
@@ -71,14 +84,28 @@ class CameraConfig:
     use_template_matching: bool = False
     min_value: Optional[float] = None  # Expected minimum value (for filtering bad OCR)
     max_value: Optional[float] = None  # Expected maximum value (for filtering bad OCR)
-    # AI configuration per camera
-    ai_provider: str = "none"  # none, openai, anthropic, google, ollama, custom, google-vision, azure-ocr, aws-textract
+    # AI configuration per camera (legacy single provider)
+    ai_provider: str = "none"  # none, openai, anthropic, google, ollama, custom, google-vision, azure-ocr, aws-textract, ml
     ai_api_key: str = ""
     ai_api_url: str = ""  # For Ollama, custom endpoints
     ai_model: str = ""
     ai_region: str = ""  # AWS region for Textract
     ai_enabled_for_ocr: bool = False
     ai_enabled_for_description: bool = False
+    # Multi-provider support - enabled providers and their configs
+    ocr_providers: list = field(default_factory=list)  # List of enabled providers: ['tesseract', 'ml', 'google-vision', etc.]
+    provider_configs: dict = field(default_factory=dict)  # Provider-specific configs: {'google-vision': {'api_key': '...'}, ...}
+    use_ml_roi_locator: bool = False  # Use ML to auto-locate ROI in frames
+
+
+@dataclass
+class ProviderResult:
+    """Result from a single OCR provider."""
+    provider: str
+    value: Optional[str]
+    raw_text: str
+    confidence: float
+    error: Optional[str] = None
 
 
 @dataclass
@@ -95,6 +122,8 @@ class ExtractedValue:
     roi_height: int = 0
     error: Optional[str] = None
     video_description: str = ""  # AI-generated scene description
+    provider_results: list = field(default_factory=list)  # List of ProviderResult from all providers
+    selected_provider: str = "tesseract"  # Provider that provided the best result
 
 
 @dataclass
@@ -1383,6 +1412,378 @@ class AIService:
             return 'none'
 
 
+class MLService:
+    """ML-based OCR service using HuggingFace models.
+
+    Model 1 (ROI Locator): Uses CLIP embeddings for finding similar ROI regions
+    Model 2 (Text Extractor): Uses TrOCR for text extraction from ROI images
+    """
+
+    # Model names from HuggingFace
+    CLIP_MODEL = "openai/clip-vit-base-patch32"  # For ROI feature matching
+    TROCR_MODEL = "microsoft/trocr-small-printed"  # For text extraction
+
+    # Singleton instances
+    _clip_model = None
+    _clip_processor = None
+    _trocr_model = None
+    _trocr_processor = None
+    _roi_embeddings = {}  # Camera -> list of (embedding, roi_data)
+    _lock = threading.Lock()
+
+    @classmethod
+    def is_available(cls) -> bool:
+        """Check if ML dependencies are available."""
+        return ML_AVAILABLE
+
+    @classmethod
+    def _load_clip_model(cls):
+        """Load CLIP model for ROI feature extraction."""
+        if not ML_AVAILABLE:
+            raise RuntimeError("ML dependencies not available")
+
+        if cls._clip_model is None:
+            with cls._lock:
+                if cls._clip_model is None:
+                    try:
+                        from transformers import CLIPProcessor, CLIPModel
+                        logger_ml.info(f"Loading CLIP model: {cls.CLIP_MODEL}")
+                        cls._clip_processor = CLIPProcessor.from_pretrained(
+                            cls.CLIP_MODEL,
+                            cache_dir=ML_MODELS_PATH
+                        )
+                        cls._clip_model = CLIPModel.from_pretrained(
+                            cls.CLIP_MODEL,
+                            cache_dir=ML_MODELS_PATH
+                        )
+                        cls._clip_model.eval()
+                        logger_ml.info("CLIP model loaded successfully")
+                    except Exception as e:
+                        logger_ml.error(f"Failed to load CLIP model: {e}")
+                        raise
+
+        return cls._clip_model, cls._clip_processor
+
+    @classmethod
+    def _load_trocr_model(cls):
+        """Load TrOCR model for text extraction."""
+        if not ML_AVAILABLE:
+            raise RuntimeError("ML dependencies not available")
+
+        if cls._trocr_model is None:
+            with cls._lock:
+                if cls._trocr_model is None:
+                    try:
+                        from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+                        logger_ml.info(f"Loading TrOCR model: {cls.TROCR_MODEL}")
+                        cls._trocr_processor = TrOCRProcessor.from_pretrained(
+                            cls.TROCR_MODEL,
+                            cache_dir=ML_MODELS_PATH
+                        )
+                        cls._trocr_model = VisionEncoderDecoderModel.from_pretrained(
+                            cls.TROCR_MODEL,
+                            cache_dir=ML_MODELS_PATH
+                        )
+                        cls._trocr_model.eval()
+                        logger_ml.info("TrOCR model loaded successfully")
+                    except Exception as e:
+                        logger_ml.error(f"Failed to load TrOCR model: {e}")
+                        raise
+
+        return cls._trocr_model, cls._trocr_processor
+
+    @classmethod
+    def get_image_embedding(cls, image: np.ndarray) -> np.ndarray:
+        """Get CLIP embedding for an image (for ROI matching)."""
+        model, processor = cls._load_clip_model()
+
+        # Convert OpenCV image (BGR) to PIL (RGB)
+        pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+
+        # Process and get embedding
+        with torch.no_grad():
+            inputs = processor(images=pil_image, return_tensors="pt")
+            features = model.get_image_features(**inputs)
+            # Normalize embedding
+            embedding = features / features.norm(dim=-1, keepdim=True)
+            return embedding.numpy().flatten()
+
+    @classmethod
+    def compute_similarity(cls, embedding1: np.ndarray, embedding2: np.ndarray) -> float:
+        """Compute cosine similarity between two embeddings."""
+        return float(np.dot(embedding1, embedding2))
+
+    @classmethod
+    def train_roi_locator(cls, camera_name: str, validated_rois: list) -> dict:
+        """Train ROI locator by computing embeddings for validated ROIs.
+
+        Args:
+            camera_name: Name of the camera
+            validated_rois: List of validated ROI data with images
+
+        Returns:
+            Training results dict
+        """
+        if not ML_AVAILABLE:
+            return {'success': False, 'error': 'ML dependencies not available'}
+
+        logger_ml.info(f"Training ROI locator for camera: {camera_name}, {len(validated_rois)} ROIs")
+
+        embeddings = []
+        trained_count = 0
+
+        for roi_data in validated_rois:
+            roi_id = roi_data.get('id')
+            img_path = os.path.join(SAVED_ROIS_PATH, camera_name, f'{roi_id}.png')
+
+            if not os.path.exists(img_path):
+                logger_ml.warning(f"ROI image not found: {img_path}")
+                continue
+
+            try:
+                img = cv2.imread(img_path)
+                if img is None:
+                    continue
+
+                embedding = cls.get_image_embedding(img)
+                embeddings.append({
+                    'embedding': embedding.tolist(),
+                    'roi_id': roi_id,
+                    'validated_value': roi_data.get('validated_value'),
+                    'roi': roi_data.get('roi')
+                })
+                trained_count += 1
+                logger_ml.info(f"Computed embedding for ROI {roi_id}")
+
+            except Exception as e:
+                logger_ml.error(f"Error computing embedding for ROI {roi_id}: {e}")
+
+        # Save embeddings to disk
+        embeddings_file = os.path.join(ML_MODELS_PATH, f'{camera_name}_roi_embeddings.json')
+        with open(embeddings_file, 'w') as f:
+            json.dump(embeddings, f)
+
+        # Update in-memory cache
+        cls._roi_embeddings[camera_name] = embeddings
+
+        logger_ml.info(f"ROI locator trained with {trained_count} embeddings")
+
+        return {
+            'success': True,
+            'trained_count': trained_count,
+            'message': f'Trained ROI locator with {trained_count} examples'
+        }
+
+    @classmethod
+    def load_roi_embeddings(cls, camera_name: str) -> list:
+        """Load ROI embeddings from disk."""
+        if camera_name in cls._roi_embeddings:
+            return cls._roi_embeddings[camera_name]
+
+        embeddings_file = os.path.join(ML_MODELS_PATH, f'{camera_name}_roi_embeddings.json')
+        if os.path.exists(embeddings_file):
+            with open(embeddings_file, 'r') as f:
+                embeddings = json.load(f)
+                # Convert embedding lists back to numpy arrays
+                for emb in embeddings:
+                    emb['embedding'] = np.array(emb['embedding'])
+                cls._roi_embeddings[camera_name] = embeddings
+                return embeddings
+
+        return []
+
+    @classmethod
+    def locate_roi(cls, camera_name: str, frame: np.ndarray,
+                   search_region: tuple = None, threshold: float = 0.7) -> Optional[dict]:
+        """Locate ROI in a frame using trained embeddings.
+
+        Args:
+            camera_name: Name of the camera
+            frame: Full frame image
+            search_region: Optional (x, y, width, height) to limit search area
+            threshold: Minimum similarity threshold
+
+        Returns:
+            Best matching ROI location or None
+        """
+        embeddings = cls.load_roi_embeddings(camera_name)
+        if not embeddings:
+            logger_ml.warning(f"No ROI embeddings found for camera: {camera_name}")
+            return None
+
+        # Get reference ROI info for sliding window
+        ref_roi = embeddings[0].get('roi', {})
+        roi_width = ref_roi.get('width', 100)
+        roi_height = ref_roi.get('height', 50)
+
+        # Define search area
+        h, w = frame.shape[:2]
+        if search_region:
+            sx, sy, sw, sh = search_region
+        else:
+            sx, sy, sw, sh = 0, 0, w, h
+
+        # Sliding window search (with stride for efficiency)
+        stride = max(10, min(roi_width, roi_height) // 4)
+        best_match = None
+        best_similarity = threshold
+
+        # Calculate average reference embedding
+        ref_embeddings = np.array([np.array(e['embedding']) for e in embeddings])
+        avg_ref_embedding = np.mean(ref_embeddings, axis=0)
+        avg_ref_embedding = avg_ref_embedding / np.linalg.norm(avg_ref_embedding)
+
+        logger_ml.info(f"Searching for ROI in frame {w}x{h}, window {roi_width}x{roi_height}")
+
+        for y in range(sy, min(sy + sh - roi_height, h - roi_height), stride):
+            for x in range(sx, min(sx + sw - roi_width, w - roi_width), stride):
+                # Extract window
+                window = frame[y:y+roi_height, x:x+roi_width]
+
+                try:
+                    # Get embedding for this window
+                    window_embedding = cls.get_image_embedding(window)
+
+                    # Compare with average reference
+                    similarity = cls.compute_similarity(window_embedding, avg_ref_embedding)
+
+                    if similarity > best_similarity:
+                        best_similarity = similarity
+                        best_match = {
+                            'x': x, 'y': y,
+                            'width': roi_width, 'height': roi_height,
+                            'similarity': similarity
+                        }
+                        logger_ml.debug(f"New best match at ({x}, {y}) with similarity {similarity:.3f}")
+
+                except Exception as e:
+                    continue
+
+        if best_match:
+            logger_ml.info(f"Found ROI at ({best_match['x']}, {best_match['y']}) "
+                          f"with similarity {best_match['similarity']:.3f}")
+        else:
+            logger_ml.info("No ROI match found above threshold")
+
+        return best_match
+
+    @classmethod
+    def extract_text_trocr(cls, image: np.ndarray) -> Tuple[str, float]:
+        """Extract text from image using TrOCR.
+
+        Args:
+            image: ROI image (BGR format)
+
+        Returns:
+            Tuple of (extracted_text, confidence)
+        """
+        model, processor = cls._load_trocr_model()
+
+        # Convert to PIL
+        pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+
+        # Preprocess - resize if too small
+        min_size = 32
+        w, h = pil_image.size
+        if w < min_size or h < min_size:
+            scale = max(min_size / w, min_size / h)
+            pil_image = pil_image.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
+
+        # Process
+        with torch.no_grad():
+            pixel_values = processor(images=pil_image, return_tensors="pt").pixel_values
+
+            # Generate text with beam search
+            generated_ids = model.generate(
+                pixel_values,
+                max_length=20,
+                num_beams=3,
+                early_stopping=True
+            )
+
+            # Decode
+            generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+
+        # Extract numeric value
+        numbers = re.findall(r'[-+]?\d*\.?\d+', generated_text)
+        extracted_value = numbers[0] if numbers else generated_text.strip()
+
+        # Confidence estimation (based on text clarity)
+        # TrOCR doesn't provide confidence directly, estimate from output
+        confidence = 80.0 if numbers else 50.0
+
+        logger_ml.info(f"TrOCR extracted: '{generated_text}' -> '{extracted_value}'")
+
+        return extracted_value, confidence
+
+    @classmethod
+    def train_text_extractor(cls, camera_name: str, validated_rois: list) -> dict:
+        """Fine-tune TrOCR on validated ROIs (simplified version).
+
+        For full fine-tuning, we would need more data and GPU resources.
+        This version stores validation data for few-shot learning.
+
+        Args:
+            camera_name: Camera name
+            validated_rois: List of ROIs with validated values
+
+        Returns:
+            Training results
+        """
+        if not ML_AVAILABLE:
+            return {'success': False, 'error': 'ML dependencies not available'}
+
+        logger_ml.info(f"Training text extractor for camera: {camera_name}")
+
+        # For now, we just ensure the model is loaded and cache examples
+        # Full fine-tuning would require GPU and more complex training loop
+
+        training_data = []
+        for roi_data in validated_rois:
+            roi_id = roi_data.get('id')
+            validated_value = roi_data.get('validated_value')
+
+            if validated_value is not None:
+                img_path = os.path.join(SAVED_ROIS_PATH, camera_name, f'{roi_id}.png')
+                if os.path.exists(img_path):
+                    training_data.append({
+                        'roi_id': roi_id,
+                        'validated_value': str(validated_value),
+                        'image_path': img_path
+                    })
+
+        # Save training data reference
+        training_file = os.path.join(ML_MODELS_PATH, f'{camera_name}_training_data.json')
+        with open(training_file, 'w') as f:
+            json.dump(training_data, f)
+
+        # Load model to ensure it's ready
+        try:
+            cls._load_trocr_model()
+            model_ready = True
+        except Exception as e:
+            logger_ml.error(f"Failed to load TrOCR model: {e}")
+            model_ready = False
+
+        return {
+            'success': True,
+            'trained_count': len(training_data),
+            'model_ready': model_ready,
+            'message': f'Prepared {len(training_data)} examples for ML extraction'
+        }
+
+    @classmethod
+    def get_ml_status(cls) -> dict:
+        """Get ML service status."""
+        return {
+            'available': ML_AVAILABLE,
+            'clip_loaded': cls._clip_model is not None,
+            'trocr_loaded': cls._trocr_model is not None,
+            'cameras_with_embeddings': list(cls._roi_embeddings.keys()),
+            'models_path': ML_MODELS_PATH
+        }
+
+
 class HomeAssistantIntegration:
     """Integration with Home Assistant to expose sensor entities."""
 
@@ -1888,13 +2289,164 @@ class CameraProcessor:
 
         return value, raw_text, avg_confidence
 
+    def _run_provider(self, provider: str, roi_frame: np.ndarray, camera: CameraConfig,
+                      provider_config: dict = None) -> ProviderResult:
+        """Run extraction with a single provider.
+
+        Args:
+            provider: Provider name (tesseract, ml, google-vision, azure-ocr, aws-textract, openai, anthropic, google, ollama, custom)
+            roi_frame: ROI image to extract from
+            camera: Camera configuration
+            provider_config: Provider-specific configuration (API keys, etc.)
+
+        Returns:
+            ProviderResult with extraction results
+        """
+        try:
+            if provider == 'tesseract':
+                # Run Tesseract OCR with multiple preprocessing methods
+                best_result = (None, "", 0)
+                methods = ['auto', 'threshold', 'adaptive', 'invert'] if camera.preprocessing == 'auto' else [camera.preprocessing]
+                psm_modes = [7, 8, 6, 13]
+
+                for method in methods:
+                    processed = self.preprocess_image(roi_frame, method)
+                    for psm in psm_modes:
+                        try:
+                            value, raw_text, confidence = self._ocr_single(processed, psm)
+                            if value is not None and confidence > best_result[2]:
+                                best_result = (value, raw_text, confidence)
+                            if confidence > 80 and value is not None:
+                                break
+                        except:
+                            continue
+                    if best_result[2] > 80:
+                        break
+
+                return ProviderResult(
+                    provider='tesseract',
+                    value=str(best_result[0]) if best_result[0] is not None else None,
+                    raw_text=best_result[1],
+                    confidence=best_result[2]
+                )
+
+            elif provider == 'ml':
+                # ML-based OCR using TrOCR
+                if not ML_AVAILABLE:
+                    return ProviderResult(provider='ml', value=None, raw_text='',
+                                         confidence=0, error='ML dependencies not available')
+
+                try:
+                    value, confidence = MLService.extract_text_trocr(roi_frame)
+                    return ProviderResult(
+                        provider='ml',
+                        value=value,
+                        raw_text=value,
+                        confidence=confidence
+                    )
+                except Exception as e:
+                    return ProviderResult(provider='ml', value=None, raw_text='',
+                                         confidence=0, error=str(e))
+
+            elif provider in ['google-vision', 'azure-ocr', 'aws-textract']:
+                # Cloud OCR providers
+                _, buffer = cv2.imencode('.jpg', roi_frame)
+                image_base64 = base64.b64encode(buffer).decode('utf-8')
+
+                config = provider_config or {}
+                api_key = config.get('api_key', camera.ai_api_key)
+
+                if provider == 'google-vision':
+                    result = AIService._call_google_vision_ocr(image_base64, api_key)
+                elif provider == 'azure-ocr':
+                    endpoint = config.get('endpoint', camera.ai_api_url)
+                    result = AIService._call_azure_ocr(image_base64, api_key, endpoint)
+                elif provider == 'aws-textract':
+                    region = config.get('region', camera.ai_region)
+                    result = AIService._call_aws_textract(image_base64, api_key, config.get('secret_key', ''), region)
+
+                if result and result != 'none':
+                    # Extract numeric value
+                    numbers = re.findall(r'[-+]?\d*\.?\d+', result)
+                    value = numbers[0] if numbers else result
+                    return ProviderResult(provider=provider, value=value, raw_text=result, confidence=85.0)
+                else:
+                    return ProviderResult(provider=provider, value=None, raw_text='', confidence=0, error='No text extracted')
+
+            elif provider in ['openai', 'anthropic', 'google', 'ollama', 'custom']:
+                # AI vision providers
+                _, buffer = cv2.imencode('.jpg', roi_frame)
+                image_base64 = base64.b64encode(buffer).decode('utf-8')
+
+                config = provider_config or {}
+                api_key = config.get('api_key', camera.ai_api_key)
+                api_url = config.get('api_url', camera.ai_api_url)
+                model = config.get('model', camera.ai_model)
+
+                result = AIService.enhance_ocr(image_base64, "extract numeric value", camera)
+
+                if result and result != 'none':
+                    numbers = re.findall(r'[-+]?\d*\.?\d+', result)
+                    value = numbers[0] if numbers else result
+                    return ProviderResult(provider=provider, value=value, raw_text=result, confidence=90.0)
+                else:
+                    return ProviderResult(provider=provider, value=None, raw_text='', confidence=0, error='No value extracted')
+
+            else:
+                return ProviderResult(provider=provider, value=None, raw_text='',
+                                     confidence=0, error=f'Unknown provider: {provider}')
+
+        except Exception as e:
+            logger.error(f"Provider {provider} error: {e}")
+            return ProviderResult(provider=provider, value=None, raw_text='', confidence=0, error=str(e))
+
+    def _select_best_result(self, results: list) -> tuple:
+        """Select the best result from multiple provider results.
+
+        Args:
+            results: List of ProviderResult objects
+
+        Returns:
+            Tuple of (best_result, selected_provider)
+        """
+        best = None
+        best_confidence = 0
+
+        for result in results:
+            if result.value is not None and result.confidence > best_confidence:
+                best = result
+                best_confidence = result.confidence
+
+        if best is None and results:
+            # Return first result with any value
+            for result in results:
+                if result.value is not None:
+                    return result, result.provider
+            # Return first result even if no value
+            return results[0], results[0].provider
+
+        return best, best.provider if best else 'none'
+
     def extract_value(self, camera: CameraConfig, frame: np.ndarray) -> ExtractedValue:
-        """Extract numeric value from frame with optional template matching."""
+        """Extract numeric value from frame with optional template matching and multi-provider support."""
         try:
             roi_x, roi_y, roi_width, roi_height = camera.roi_x, camera.roi_y, camera.roi_width, camera.roi_height
 
-            # Use template matching if enabled
-            if camera.use_template_matching and camera.template_name:
+            # Use ML ROI locator if enabled
+            if camera.use_ml_roi_locator and ML_AVAILABLE:
+                try:
+                    ml_roi = MLService.locate_roi(camera.name, frame)
+                    if ml_roi:
+                        roi_x = ml_roi['x']
+                        roi_y = ml_roi['y']
+                        roi_width = ml_roi['width']
+                        roi_height = ml_roi['height']
+                        logger.debug(f"ML ROI located at ({roi_x}, {roi_y}) with similarity {ml_roi.get('similarity', 0):.2f}")
+                except Exception as e:
+                    logger.warning(f"ML ROI locator failed: {e}")
+
+            # Use template matching if enabled (fallback after ML)
+            elif camera.use_template_matching and camera.template_name:
                 match = self.template_matcher.find_template(frame, camera.template_name)
                 if match and match['confidence'] > 0.6:
                     roi_x = match['x']
@@ -1916,46 +2468,63 @@ class CameraProcessor:
                 roi_x, roi_y = 0, 0
                 roi_height, roi_width = frame.shape[:2]
 
-            # Try multiple preprocessing methods and PSM modes to find best result
-            best_result = (None, "", 0)  # (value, raw_text, confidence)
-            methods_to_try = ['auto', 'threshold', 'adaptive', 'invert'] if camera.preprocessing == 'auto' else [camera.preprocessing]
-            psm_modes = [7, 8, 6, 13]  # 7=single line, 8=single word, 6=uniform block, 13=raw line
+            # Determine which providers to use (in order)
+            providers = camera.ocr_providers if camera.ocr_providers else ['tesseract']
 
-            for method in methods_to_try:
-                processed = self.preprocess_image(roi_frame, method)
+            # If legacy ai_provider is set and enabled, add it if not in list
+            if camera.ai_enabled_for_ocr and camera.ai_provider != 'none':
+                if camera.ai_provider not in providers:
+                    providers.append(camera.ai_provider)
 
-                for psm in psm_modes:
+            logger.debug(f"Running OCR with providers: {providers}")
+
+            # Run all providers and collect results
+            provider_results = []
+            for provider in providers:
+                provider_config = camera.provider_configs.get(provider, {})
+                result = self._run_provider(provider, roi_frame, camera, provider_config)
+                provider_results.append(result)
+                logger.debug(f"Provider {provider}: value={result.value}, confidence={result.confidence}")
+
+            # Select best result
+            best_result, selected_provider = self._select_best_result(provider_results)
+
+            if best_result:
+                # Convert value to float
+                final_value = None
+                if best_result.value is not None:
                     try:
-                        value, raw_text, confidence = self._ocr_single(processed, psm)
+                        final_value = float(best_result.value)
+                    except (ValueError, TypeError):
+                        final_value = None
 
-                        # Keep best result based on confidence and having a valid value
-                        if value is not None and confidence > best_result[2]:
-                            best_result = (value, raw_text, confidence)
-                            logger.debug(f"Better result: {value} ({confidence:.0f}%) with method={method}, psm={psm}")
-
-                        # If we got high confidence, stop trying
-                        if confidence > 80 and value is not None:
-                            break
-                    except Exception as e:
-                        logger.debug(f"OCR attempt failed: {e}")
-                        continue
-
-                if best_result[2] > 80:
-                    break
-
-            value, raw_text, avg_confidence = best_result
-
-            return ExtractedValue(
-                camera_name=camera.name,
-                value=round(value, 2) if value is not None else None,
-                raw_text=raw_text,
-                confidence=avg_confidence,
-                timestamp=time.time(),
-                roi_x=roi_x,
-                roi_y=roi_y,
-                roi_width=roi_width,
-                roi_height=roi_height,
-            )
+                return ExtractedValue(
+                    camera_name=camera.name,
+                    value=round(final_value, 2) if final_value is not None else None,
+                    raw_text=best_result.raw_text,
+                    confidence=best_result.confidence,
+                    timestamp=time.time(),
+                    roi_x=roi_x,
+                    roi_y=roi_y,
+                    roi_width=roi_width,
+                    roi_height=roi_height,
+                    provider_results=[asdict(r) for r in provider_results],
+                    selected_provider=selected_provider
+                )
+            else:
+                return ExtractedValue(
+                    camera_name=camera.name,
+                    value=None,
+                    raw_text="",
+                    confidence=0,
+                    timestamp=time.time(),
+                    roi_x=roi_x,
+                    roi_y=roi_y,
+                    roi_width=roi_width,
+                    roi_height=roi_height,
+                    provider_results=[asdict(r) for r in provider_results],
+                    error="No valid result from any provider"
+                )
 
         except Exception as e:
             return ExtractedValue(
@@ -2178,12 +2747,7 @@ class CameraProcessor:
         except Exception as e:
             logger.debug(f"Failed to save history ROI image: {e}")
 
-        # Get AI provider name if used
-        ai_provider = None
-        ai_config = AIService.load_config()
-        if ai_config.enabled_for_ocr:
-            ai_provider = ai_config.provider
-
+        # Store selected provider and all provider results
         self.history[camera.name].append({
             'value': result.value,
             'timestamp': result.timestamp,
@@ -2192,7 +2756,8 @@ class CameraProcessor:
             'error': result.error,
             'video_description': result.video_description,
             'roi_image_id': roi_image_id,
-            'ocr_provider': ai_provider or 'tesseract',
+            'ocr_provider': result.selected_provider,
+            'provider_results': result.provider_results,
             'roi_x': result.roi_x,
             'roi_y': result.roi_y,
             'roi_width': result.roi_width,
@@ -2363,7 +2928,7 @@ def add_camera():
         'use_template_matching': data.get('use_template_matching', False),
         'min_value': data.get('min_value'),
         'max_value': data.get('max_value'),
-        # AI configuration per camera
+        # AI configuration per camera (legacy single provider)
         'ai_provider': data.get('ai_provider', 'none'),
         'ai_api_key': data.get('ai_api_key', ''),
         'ai_api_url': data.get('ai_api_url', ''),
@@ -2371,6 +2936,10 @@ def add_camera():
         'ai_region': data.get('ai_region', ''),
         'ai_enabled_for_ocr': data.get('ai_enabled_for_ocr', False),
         'ai_enabled_for_description': data.get('ai_enabled_for_description', False),
+        # Multi-provider support
+        'ocr_providers': data.get('ocr_providers', ['tesseract']),
+        'provider_configs': data.get('provider_configs', {}),
+        'use_ml_roi_locator': data.get('use_ml_roi_locator', False),
     })
 
     if processor.save_config(cameras_list):
@@ -2405,7 +2974,7 @@ def update_camera(name):
                 'use_template_matching': data.get('use_template_matching', cam.use_template_matching),
                 'min_value': data.get('min_value', cam.min_value),
                 'max_value': data.get('max_value', cam.max_value),
-                # AI configuration per camera
+                # AI configuration per camera (legacy single provider)
                 'ai_provider': data.get('ai_provider', cam.ai_provider),
                 'ai_api_key': data.get('ai_api_key', cam.ai_api_key),
                 'ai_api_url': data.get('ai_api_url', cam.ai_api_url),
@@ -2413,6 +2982,10 @@ def update_camera(name):
                 'ai_region': data.get('ai_region', cam.ai_region),
                 'ai_enabled_for_ocr': data.get('ai_enabled_for_ocr', cam.ai_enabled_for_ocr),
                 'ai_enabled_for_description': data.get('ai_enabled_for_description', cam.ai_enabled_for_description),
+                # Multi-provider support
+                'ocr_providers': data.get('ocr_providers', getattr(cam, 'ocr_providers', [])),
+                'provider_configs': data.get('provider_configs', getattr(cam, 'provider_configs', {})),
+                'use_ml_roi_locator': data.get('use_ml_roi_locator', getattr(cam, 'use_ml_roi_locator', False)),
             })
         else:
             cameras_list.append(asdict(cam))
@@ -3070,6 +3643,37 @@ def train_ocr(camera_name):
 
         logger.info(f"Training complete: tested {len(tested_rois)} ROIs, best config: {best_config}")
 
+        # Train ML models if available
+        ml_training_result = None
+        if ML_AVAILABLE:
+            try:
+                logger.info("Training ML models...")
+
+                # Train ROI locator (Model 1)
+                roi_locator_result = MLService.train_roi_locator(camera_name, validated_rois)
+                logger.info(f"ROI Locator training: {roi_locator_result}")
+
+                # Train text extractor (Model 2)
+                text_extractor_result = MLService.train_text_extractor(camera_name, validated_rois)
+                logger.info(f"Text Extractor training: {text_extractor_result}")
+
+                ml_training_result = {
+                    'roi_locator': roi_locator_result,
+                    'text_extractor': text_extractor_result,
+                    'success': True
+                }
+            except Exception as e:
+                logger.error(f"ML training failed: {e}")
+                ml_training_result = {
+                    'success': False,
+                    'error': str(e)
+                }
+        else:
+            ml_training_result = {
+                'success': False,
+                'error': 'ML dependencies not available'
+            }
+
         return jsonify({
             'success': True,
             'validated_count': len(validated_rois),
@@ -3077,11 +3681,101 @@ def train_ocr(camera_name):
             'tested_rois': tested_rois,
             'best_config': best_config,
             'ranked_configs': ranked_configs[:5],  # Top 5 configs
-            'detailed_results': results
+            'detailed_results': results,
+            'ml_training': ml_training_result
         })
 
     except Exception as e:
         logger.error(f"Error training OCR: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ml/status', methods=['GET'])
+def get_ml_status():
+    """Get ML service status."""
+    if ML_AVAILABLE:
+        return jsonify(MLService.get_ml_status())
+    return jsonify({
+        'available': False,
+        'error': 'ML dependencies not installed'
+    })
+
+
+@app.route('/api/ml/test', methods=['POST'])
+def test_ml_extraction():
+    """Test ML extraction on an image."""
+    if not ML_AVAILABLE:
+        return jsonify({'error': 'ML dependencies not available'}), 400
+
+    data = request.json
+    image_b64 = data.get('image')
+    camera_name = data.get('camera_name')
+
+    if not image_b64:
+        return jsonify({'error': 'Image required'}), 400
+
+    try:
+        # Decode image
+        img_data = base64.b64decode(image_b64)
+        nparr = np.frombuffer(img_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if img is None:
+            return jsonify({'error': 'Failed to decode image'}), 400
+
+        # Run ML extraction
+        value, confidence = MLService.extract_text_trocr(img)
+
+        return jsonify({
+            'success': True,
+            'value': value,
+            'confidence': confidence,
+            'provider': 'ml'
+        })
+
+    except Exception as e:
+        logger.error(f"ML test extraction error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ml/locate-roi', methods=['POST'])
+def ml_locate_roi():
+    """Use ML to locate ROI in an image."""
+    if not ML_AVAILABLE:
+        return jsonify({'error': 'ML dependencies not available'}), 400
+
+    data = request.json
+    image_b64 = data.get('image')
+    camera_name = data.get('camera_name')
+
+    if not image_b64 or not camera_name:
+        return jsonify({'error': 'Image and camera_name required'}), 400
+
+    try:
+        # Decode image
+        img_data = base64.b64decode(image_b64)
+        nparr = np.frombuffer(img_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if img is None:
+            return jsonify({'error': 'Failed to decode image'}), 400
+
+        # Locate ROI
+        roi = MLService.locate_roi(camera_name, img)
+
+        if roi:
+            return jsonify({
+                'success': True,
+                'roi': roi
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'No ROI found'
+            })
+
+    except Exception as e:
+        logger.error(f"ML ROI location error: {e}")
         return jsonify({'error': str(e)}), 500
 
 

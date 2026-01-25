@@ -22,7 +22,12 @@ RUN apk add --no-cache \
     pytesseract \
     opencv-python-headless \
     numpy \
-    requests
+    requests \
+    # ML dependencies for HuggingFace models
+    torch --index-url https://download.pytorch.org/whl/cpu \
+    transformers \
+    Pillow \
+    scikit-learn
 
 # Copy application files
 COPY rootfs /

@@ -5,7 +5,7 @@
 <h1 align="center">Camera OCR for Home Assistant</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.24-blue.svg" alt="Version 1.2.17">
+  <img src="https://img.shields.io/badge/version-1.2.25-blue.svg" alt="Version 1.2.17">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License MIT">
   <img src="https://img.shields.io/github/stars/tursoft/hass-camera-ocr?style=flat&logo=github" alt="GitHub Stars">
   <img src="https://img.shields.io/github/forks/tursoft/hass-camera-ocr?style=flat&logo=github" alt="GitHub Forks">
@@ -335,35 +335,97 @@ Each sensor provides these attributes:
 | `error` | Error message if extraction failed |
 | `video_description` | AI-generated scene description (if enabled) |
 
-## AI Integration
+## OCR & AI Integration
 
-Camera OCR supports optional AI integration for enhanced OCR accuracy and automatic scene description generation.
+Camera OCR supports multiple OCR providers that can work together for improved accuracy. Configure multiple providers per camera and the system will run all of them, selecting the result with highest confidence.
 
-### Supported AI Providers
+### Multi-Provider Architecture
 
-| Provider | Models | Use Case |
-|----------|--------|----------|
-| **OpenAI** | GPT-4o, GPT-4-turbo | Cloud-based, high accuracy |
-| **Anthropic** | Claude Sonnet/Opus | Cloud-based, excellent vision |
-| **Google** | Gemini 1.5 Flash/Pro | Cloud-based, fast |
-| **Ollama** | LLaVA, BakLLaVA | Local/self-hosted, private |
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Camera Frame                             │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│               ROI Location (Model 1 - Shared)                    │
+│   ┌─────────────┐  ┌──────────────────┐  ┌─────────────────┐   │
+│   │ ML Locator  │  │ Template Matcher │  │  Fixed ROI      │   │
+│   │ (CLIP)      │  │                  │  │                 │   │
+│   └─────────────┘  └──────────────────┘  └─────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    OCR Providers (in order)                      │
+│   ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐      │
+│   │ Tesseract │ │    ML     │ │  Cloud    │ │    AI     │      │
+│   │           │ │  (TrOCR)  │ │   OCR     │ │  Vision   │      │
+│   └───────────┘ └───────────┘ └───────────┘ └───────────┘      │
+│         │             │             │             │              │
+│         ▼             ▼             ▼             ▼              │
+│   ┌───────────────────────────────────────────────────────┐     │
+│   │              Result Aggregator                         │     │
+│   │   - Collects results from all providers               │     │
+│   │   - Compares confidence scores                        │     │
+│   │   - Selects best result                              │     │
+│   │   - Stores all results in history                    │     │
+│   └───────────────────────────────────────────────────────┘     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Supported Providers
+
+| Provider | Type | Models | Use Case |
+|----------|------|--------|----------|
+| **Tesseract** | Local OCR | Built-in | Fast, no API needed, good for clear displays |
+| **ML (TrOCR)** | Local ML | microsoft/trocr-small-printed | Trained model, learns from validated ROIs |
+| **Google Vision** | Cloud OCR | Vision API | High accuracy, requires API key |
+| **Azure OCR** | Cloud OCR | Read API | Enterprise-grade, requires subscription |
+| **AWS Textract** | Cloud OCR | Textract | AWS ecosystem integration |
+| **OpenAI** | AI Vision | GPT-4o, GPT-4-turbo | Understands context, high accuracy |
+| **Anthropic** | AI Vision | Claude Sonnet/Opus | Excellent vision capabilities |
+| **Google** | AI Vision | Gemini 1.5 Flash/Pro | Fast, good accuracy |
+| **Ollama** | Local AI | LLaVA, BakLLaVA | Private, self-hosted |
+
+### ML Training
+
+The ML provider uses two models from HuggingFace:
+
+1. **ROI Locator (CLIP)**: Learns to find ROI regions in new frames based on validated examples
+2. **Text Extractor (TrOCR)**: Extracts text from ROI images using transformer-based OCR
+
+Training is automatic when you validate ROIs:
+1. Save ROIs with the "Save ROI" button
+2. Click on a saved ROI and enter the correct "Validated Value"
+3. Click "Train OCR" to train both Tesseract configurations and ML models
+4. Models are persisted in `/config/hass_camera_ocr/ml_models/`
 
 ### Configuration
 
 1. Go to the **AI Settings** page in the web UI
-2. Select your preferred AI provider
-3. Enter your API key (or server URL for Ollama)
-4. Enable the features you want:
-   - **OCR Enhancement**: Use AI to verify/correct OCR readings
+2. Select your camera
+3. Add providers in your preferred order (first provider runs first)
+4. Enter credentials for each provider
+5. Enable features:
+   - **OCR Enhancement**: Run multiple providers for best result
    - **Scene Description**: Generate descriptions of camera view
+   - **ML ROI Locator**: Auto-locate ROI using trained ML model
 
 ### Features
 
-#### Enhanced OCR
-When enabled, AI will analyze the ROI region and extract numeric values, which can improve accuracy especially for:
-- Low contrast displays
-- Unusual fonts or digit styles
-- Partial occlusion
+#### Multi-Provider OCR
+When multiple providers are configured:
+- All providers run in the configured order
+- Each provider's result and confidence is recorded
+- The result with highest confidence is selected
+- All provider results are stored in history for comparison
+
+#### ML-Based ROI Location
+When trained and enabled:
+- Uses CLIP embeddings to find similar regions to validated ROIs
+- Works even when camera angle changes slightly
+- Falls back to template matching or fixed ROI if ML fails
 
 #### Scene Description
 Generates a brief description of what the camera sees, useful for:

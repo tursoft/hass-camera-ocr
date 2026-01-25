@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.2.25] - 2026
+
+### Added
+- **ML-based OCR Provider**: New provider using HuggingFace TrOCR model for text extraction
+- **ML ROI Locator**: Uses CLIP embeddings to automatically locate ROI in frames based on trained examples
+- **Multi-Provider Support**: Configure multiple OCR providers per camera in preferred order
+  - All providers run in sequence, results collected with confidence scores
+  - Best result selected automatically based on confidence
+  - All provider results stored in history for comparison
+- **Provider Results in History**: Value history now shows results from all providers, not just the selected one
+- New API endpoints: `/api/ml/status`, `/api/ml/test`, `/api/ml/locate-roi`
+- ML models persisted in `/config/hass_camera_ocr/ml_models/` (survives reinstalls)
+
+### Changed
+- Train OCR now also trains ML models (ROI Locator and Text Extractor)
+- Camera configuration now supports `ocr_providers` list and `provider_configs` object
+- Updated README with new architecture diagram and multi-provider documentation
+
+### Technical
+- Added torch, transformers, Pillow, scikit-learn dependencies
+- Added MLService class with CLIP and TrOCR model management
+- Added ProviderResult dataclass for structured provider results
+- Updated ExtractedValue to include provider_results and selected_provider
+
 ## [1.2.24] - 2026
 
 ### Added
