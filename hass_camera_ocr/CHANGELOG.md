@@ -16,6 +16,7 @@
 
 ### Fixed
 - Improved code maintainability with separate template files
+- Fixed "No saved ROIs for this camera" error in Train OCR and Validate ROI functions
 
 ## [1.2.19] - 2026
 
