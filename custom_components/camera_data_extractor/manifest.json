@@ -1,12 +1,12 @@
 {
   "domain": "camera_data_extractor",
   "name": "Camera Data Extractor",
-  "codeowners": ["@your-github-username"],
+  "codeowners": ["@tursoft"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/your-github-username/ha-camera-data-extractor",
+  "documentation": "https://github.com/tursoft/ha-camera-data-extractor",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/your-github-username/ha-camera-data-extractor/issues",
+  "issue_tracker": "https://github.com/tursoft/ha-camera-data-extractor/issues",
   "requirements": ["opencv-python-headless>=4.8.0", "pytesseract>=0.3.10", "numpy>=1.24.0"],
   "version": "1.0.0"
 }

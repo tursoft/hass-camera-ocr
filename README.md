@@ -18,7 +18,7 @@ Extract numeric values from IP camera video streams using OCR (Optical Character
 
 1. Open HACS in Home Assistant
 2. Click the three dots menu (⋮) → Custom repositories
-3. Add `https://github.com/your-username/ha-camera-data-extractor` as an Integration
+3. Add `https://github.com/tursoft/ha-camera-data-extractor` as an Integration
 4. Search for "Camera Data Extractor" and install
 5. Restart Home Assistant
 
@@ -261,5 +261,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-- [Report an Issue](https://github.com/your-username/ha-camera-data-extractor/issues)
+- [Report an Issue](https://github.com/tursoft/ha-camera-data-extractor/issues)
 - [Home Assistant Community Forum](https://community.home-assistant.io/)
+
+## Author
+
+**Muhammet Turşak**
+Email: tursoft@gmail.com
+Website: https://tursoft.net
