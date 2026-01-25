@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.2.23] - 2026
+## [1.2.24] - 2026
 
 ### Added
 - **Per-Camera AI Configuration**: Each camera can now have its own AI provider settings
