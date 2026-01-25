@@ -1,5 +1,8 @@
 # Camera Data Extractor for Home Assistant
 
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=tursoft&repository=ha-camera-data-extractor&category=integration)
+[![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Ftursoft%2Fha-camera-data-extractor)
+
 Extract numeric values from IP camera video streams using OCR (Optical Character Recognition). Perfect for monitoring displays like boiler temperatures, pressure gauges, energy meters, or any device with a digital/analog display.
 
 ## Features
@@ -27,6 +30,14 @@ Choose one of the following installation methods based on your needs:
 ### Method 1: Add-on Repository (Recommended for HA OS)
 
 This is the easiest method for Home Assistant OS and Supervised installations. The add-on runs in its own container with all dependencies included.
+
+#### Quick Install
+
+[![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Ftursoft%2Fha-camera-data-extractor)
+
+Click the button above, or follow the manual steps below:
+
+#### Manual Install
 
 1. Go to **Settings** → **Add-ons** → **Add-on Store**
 2. Click the three dots menu (⋮) in the top right → **Repositories**
@@ -69,6 +80,14 @@ log_level: info
 ### Method 2: HACS Custom Integration
 
 For advanced users or non-OS installations who want sensor entities.
+
+#### Quick Install
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=tursoft&repository=ha-camera-data-extractor&category=integration)
+
+Click the button above, or follow the manual steps below:
+
+#### Manual Install
 
 1. Open HACS in Home Assistant
 2. Click the three dots menu (⋮) → **Custom repositories**
