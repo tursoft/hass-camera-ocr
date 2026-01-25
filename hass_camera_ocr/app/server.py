@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Camera OCR Add-on Server with Full Admin Interface and Template Matching."""
 
+VERSION = "1.2.19"
+
 import os
 import json
 import logging
@@ -3232,6 +3234,7 @@ WEB_UI = '''
                     <circle cx="12" cy="13" r="4"></circle>
                 </svg>
                 Camera OCR
+                <span style="font-size: 11px; color: var(--text-3); font-weight: 400; margin-left: 8px;">v''' + VERSION + '''</span>
             </div>
             <nav class="nav">
                 <button class="nav-btn active" data-page="dashboard">Dashboard</button>
