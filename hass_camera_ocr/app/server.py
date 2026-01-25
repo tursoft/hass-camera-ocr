@@ -39,11 +39,14 @@ DATA_PATH = os.environ.get('DATA_PATH', '/data')
 CONFIG_PATH = os.environ.get('CONFIG_PATH', '/config/hass_camera_ocr')
 CAMERAS_PATH = os.path.join(CONFIG_PATH, 'cameras.json')
 TEMPLATES_PATH = os.path.join(CONFIG_PATH, 'templates')
+HISTORY_PATH = os.path.join(CONFIG_PATH, 'history.json')
+SAVED_ROIS_PATH = os.path.join(CONFIG_PATH, 'saved_rois')
 
 # Ensure directories exist
 Path(CONFIG_PATH).mkdir(parents=True, exist_ok=True)
 Path(TEMPLATES_PATH).mkdir(parents=True, exist_ok=True)
 Path(DATA_PATH).mkdir(parents=True, exist_ok=True)
+Path(SAVED_ROIS_PATH).mkdir(parents=True, exist_ok=True)
 
 
 @dataclass
@@ -880,6 +883,26 @@ class CameraProcessor:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self.MAX_HISTORY = 20
+        self._load_history()  # Load history from persistent storage
+
+    def _load_history(self):
+        """Load history from persistent storage."""
+        try:
+            if os.path.exists(HISTORY_PATH):
+                with open(HISTORY_PATH, 'r') as f:
+                    self.history = json.load(f)
+                logger.info(f"Loaded history for {len(self.history)} cameras from {HISTORY_PATH}")
+        except Exception as e:
+            logger.error(f"Error loading history: {e}")
+            self.history = {}
+
+    def _save_history(self):
+        """Save history to persistent storage."""
+        try:
+            with open(HISTORY_PATH, 'w') as f:
+                json.dump(self.history, f)
+        except Exception as e:
+            logger.error(f"Error saving history: {e}")
 
     def load_config(self) -> int:
         """Load configuration - first from persistent storage, then from options.json."""
@@ -1403,6 +1426,9 @@ class CameraProcessor:
         if len(self.history[camera.name]) > self.MAX_HISTORY:
             self.history[camera.name] = self.history[camera.name][-self.MAX_HISTORY:]
 
+        # Save history to persistent storage
+        self._save_history()
+
         if result.value is not None:
             logger.info(f"{camera.name}: {result.value} {camera.unit} (confidence: {result.confidence:.1f}%)")
         else:
@@ -1740,6 +1766,107 @@ WEB_UI = '''
             top: 0;
             left: 0;
             cursor: crosshair;
+        }
+
+        .saved-rois-section {
+            margin-top: 12px;
+            padding: 12px;
+            background: var(--card-bg);
+            border-radius: 8px;
+        }
+
+        .saved-rois-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            font-weight: 500;
+            color: var(--text-2);
+        }
+
+        .saved-rois-list {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .saved-roi-item {
+            position: relative;
+            width: 120px;
+            background: var(--bg);
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .saved-roi-item img {
+            width: 100%;
+            height: 80px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .saved-roi-info {
+            padding: 6px;
+            font-size: 11px;
+        }
+
+        .saved-roi-value {
+            font-weight: 600;
+            color: var(--primary);
+            font-size: 14px;
+        }
+
+        .saved-roi-time {
+            color: var(--text-3);
+            margin-top: 2px;
+        }
+
+        .saved-roi-delete {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 20px;
+            height: 20px;
+            border: none;
+            background: rgba(244, 67, 54, 0.9);
+            color: white;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            line-height: 1;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .saved-roi-item:hover .saved-roi-delete {
+            opacity: 1;
+        }
+
+        .saved-roi-delete:hover {
+            background: var(--error);
+        }
+
+        .saved-roi-apply {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            padding: 2px 6px;
+            border: none;
+            background: rgba(76, 175, 80, 0.9);
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 10px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .saved-roi-item:hover .saved-roi-apply {
+            opacity: 1;
         }
 
         .zoom-controls {
@@ -2278,6 +2405,15 @@ WEB_UI = '''
                             <div class="preview-wrapper" id="preview-wrapper">
                                 <img id="preview-image" style="display: none;" />
                                 <canvas id="preview-canvas" class="preview-canvas" style="display: none;"></canvas>
+                            </div>
+
+                            <!-- Saved ROIs Section -->
+                            <div class="saved-rois-section" id="saved-rois-section" style="display: none;">
+                                <div class="saved-rois-header">
+                                    <span>Saved ROIs</span>
+                                    <button class="btn btn-success btn-sm" onclick="saveCurrentROI()">Save Current ROI</button>
+                                </div>
+                                <div class="saved-rois-list" id="saved-rois-list"></div>
                             </div>
                         </div>
 
@@ -3260,6 +3396,7 @@ WEB_UI = '''
             }
 
             await refreshLivePreview();
+            loadSavedROIs();
         }
 
         async function refreshLivePreview() {
@@ -3557,6 +3694,18 @@ WEB_UI = '''
 
             const preprocessing = document.getElementById('live-preprocessing').value;
 
+            // Show loading state
+            const resultValue = document.getElementById('result-value');
+            const resultRaw = document.getElementById('result-raw');
+            const resultConfidence = document.getElementById('result-confidence');
+            const resultPreview = document.getElementById('result-roi-preview');
+
+            resultValue.textContent = '...';
+            resultValue.style.color = 'var(--text-3)';
+            resultRaw.innerHTML = '<div class="loading" style="width: 20px; height: 20px; margin: 0 auto;"></div>';
+            resultConfidence.textContent = 'Extracting...';
+            resultPreview.style.display = 'none';
+
             try {
                 const res = await fetch('api/test-extraction', {
                     method: 'POST',
@@ -3636,6 +3785,147 @@ WEB_UI = '''
             } catch (e) {
                 toast('Failed to save ROI', 'error');
             }
+        }
+
+        // Saved ROIs
+        async function loadSavedROIs() {
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) return;
+
+            const section = document.getElementById('saved-rois-section');
+            const list = document.getElementById('saved-rois-list');
+
+            try {
+                const res = await fetch(`api/saved-rois/${encodeURIComponent(name)}`);
+                const rois = await res.json();
+
+                if (rois.length > 0) {
+                    section.style.display = 'block';
+                    list.innerHTML = rois.map(roi => `
+                        <div class="saved-roi-item">
+                            <img src="api/saved-rois/${encodeURIComponent(name)}/${roi.id}/image" alt="ROI">
+                            <button class="saved-roi-apply" onclick="applySavedROI(${JSON.stringify(roi.roi).replace(/"/g, '&quot;')})">Apply</button>
+                            <button class="saved-roi-delete" onclick="deleteSavedROI('${name}', '${roi.id}')">&times;</button>
+                            <div class="saved-roi-info">
+                                <div class="saved-roi-value">${roi.extracted_value !== undefined ? roi.extracted_value : '--'}</div>
+                                <div class="saved-roi-time">${new Date(roi.timestamp * 1000).toLocaleString()}</div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    section.style.display = 'block';
+                    list.innerHTML = '<p style="color: var(--text-3); font-size: 12px;">No saved ROIs. Draw an ROI and click "Save Current ROI".</p>';
+                }
+            } catch (e) {
+                console.error('Failed to load saved ROIs:', e);
+            }
+        }
+
+        async function saveCurrentROI() {
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) {
+                toast('Please select a camera first', 'error');
+                return;
+            }
+
+            if (currentROI.width <= 0 || currentROI.height <= 0) {
+                toast('Please draw an ROI first', 'error');
+                return;
+            }
+
+            // Get the current frame as base64 with ROI drawn
+            const canvas = document.getElementById('preview-canvas');
+            const img = document.getElementById('preview-image');
+
+            // Create a temporary canvas to draw ROI cropped region
+            const tempCanvas = document.createElement('canvas');
+            const ctx = tempCanvas.getContext('2d');
+
+            // Calculate actual ROI coordinates (accounting for zoom)
+            const roiX = Math.round(currentROI.x / zoomLevel);
+            const roiY = Math.round(currentROI.y / zoomLevel);
+            const roiW = Math.round(currentROI.width / zoomLevel);
+            const roiH = Math.round(currentROI.height / zoomLevel);
+
+            // Draw the ROI region
+            tempCanvas.width = roiW;
+            tempCanvas.height = roiH;
+            ctx.drawImage(img, roiX, roiY, roiW, roiH, 0, 0, roiW, roiH);
+
+            const screenshot = tempCanvas.toDataURL('image/png').split(',')[1];
+
+            // Also do a test extraction to get the value
+            let extractedValue = null;
+            try {
+                const testRes = await fetch('api/test-extraction', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        camera_name: name,
+                        roi: { x: roiX, y: roiY, width: roiW, height: roiH },
+                        preprocessing: document.getElementById('live-preprocessing').value
+                    })
+                });
+                const testData = await testRes.json();
+                if (testData.success) {
+                    extractedValue = testData.value;
+                }
+            } catch (e) {
+                console.error('Test extraction failed:', e);
+            }
+
+            try {
+                const res = await fetch(`api/saved-rois/${encodeURIComponent(name)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        roi: { x: roiX, y: roiY, width: roiW, height: roiH },
+                        screenshot: screenshot,
+                        extracted_value: extractedValue
+                    })
+                });
+
+                if (res.ok) {
+                    toast('ROI saved', 'success');
+                    loadSavedROIs();
+                } else {
+                    toast('Failed to save ROI', 'error');
+                }
+            } catch (e) {
+                toast('Failed to save ROI', 'error');
+            }
+        }
+
+        async function deleteSavedROI(cameraName, roiId) {
+            if (!confirm('Delete this saved ROI?')) return;
+
+            try {
+                const res = await fetch(`api/saved-rois/${encodeURIComponent(cameraName)}/${roiId}`, {
+                    method: 'DELETE'
+                });
+
+                if (res.ok) {
+                    toast('ROI deleted', 'success');
+                    loadSavedROIs();
+                } else {
+                    toast('Failed to delete ROI', 'error');
+                }
+            } catch (e) {
+                toast('Failed to delete ROI', 'error');
+            }
+        }
+
+        function applySavedROI(roi) {
+            // Apply the saved ROI coordinates
+            currentROI = {
+                x: roi.x * zoomLevel,
+                y: roi.y * zoomLevel,
+                width: roi.width * zoomLevel,
+                height: roi.height * zoomLevel
+            };
+            updateROIDisplay();
+            drawROI();
+            toast('ROI applied', 'success');
         }
 
         // Templates
@@ -4291,6 +4581,96 @@ def get_template_image(name):
     img_path = Path(TEMPLATES_PATH) / f"{name}.png"
     if not img_path.exists():
         return jsonify({'error': 'Template not found'}), 404
+
+    with open(img_path, 'rb') as f:
+        return Response(f.read(), mimetype='image/png')
+
+
+@app.route('/api/saved-rois/<camera_name>', methods=['GET'])
+def get_saved_rois(camera_name):
+    """Get saved ROIs for a camera."""
+    rois = []
+    roi_dir = Path(SAVED_ROIS_PATH) / camera_name
+    if roi_dir.exists():
+        for json_file in roi_dir.glob('*.json'):
+            try:
+                with open(json_file, 'r') as f:
+                    roi_data = json.load(f)
+                    roi_data['id'] = json_file.stem
+                    rois.append(roi_data)
+            except Exception as e:
+                logger.error(f"Error loading ROI {json_file}: {e}")
+    # Sort by timestamp descending
+    rois.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+    return jsonify(rois)
+
+
+@app.route('/api/saved-rois/<camera_name>', methods=['POST'])
+def save_roi(camera_name):
+    """Save an ROI with screenshot."""
+    data = request.json
+    roi = data.get('roi', {})
+    screenshot = data.get('screenshot', '')  # base64 image
+    extracted_value = data.get('extracted_value')
+
+    if not roi or not screenshot:
+        return jsonify({'error': 'ROI and screenshot required'}), 400
+
+    # Create camera ROI directory
+    roi_dir = Path(SAVED_ROIS_PATH) / camera_name
+    roi_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate unique ID
+    roi_id = f"roi_{int(time.time() * 1000)}"
+
+    # Save screenshot
+    img_data = base64.b64decode(screenshot)
+    img_path = roi_dir / f"{roi_id}.png"
+    with open(img_path, 'wb') as f:
+        f.write(img_data)
+
+    # Save ROI metadata
+    roi_data = {
+        'roi': roi,
+        'timestamp': time.time(),
+        'camera': camera_name,
+        'extracted_value': extracted_value
+    }
+    json_path = roi_dir / f"{roi_id}.json"
+    with open(json_path, 'w') as f:
+        json.dump(roi_data, f)
+
+    return jsonify({'success': True, 'id': roi_id})
+
+
+@app.route('/api/saved-rois/<camera_name>/<roi_id>', methods=['DELETE'])
+def delete_saved_roi(camera_name, roi_id):
+    """Delete a saved ROI."""
+    roi_dir = Path(SAVED_ROIS_PATH) / camera_name
+
+    # Delete both JSON and image files
+    json_path = roi_dir / f"{roi_id}.json"
+    img_path = roi_dir / f"{roi_id}.png"
+
+    deleted = False
+    if json_path.exists():
+        json_path.unlink()
+        deleted = True
+    if img_path.exists():
+        img_path.unlink()
+        deleted = True
+
+    if deleted:
+        return jsonify({'success': True})
+    return jsonify({'error': 'ROI not found'}), 404
+
+
+@app.route('/api/saved-rois/<camera_name>/<roi_id>/image')
+def get_saved_roi_image(camera_name, roi_id):
+    """Get saved ROI screenshot image."""
+    img_path = Path(SAVED_ROIS_PATH) / camera_name / f"{roi_id}.png"
+    if not img_path.exists():
+        return jsonify({'error': 'Image not found'}), 404
 
     with open(img_path, 'rb') as f:
         return Response(f.read(), mimetype='image/png')

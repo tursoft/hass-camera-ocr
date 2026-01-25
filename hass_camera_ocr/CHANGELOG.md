@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.10] - 2026
+
+### Added
+- Persistent value history - survives uninstall/reinstall
+- Saved ROI thumbnails below live preview with extracted values
+- Save/delete/apply saved ROIs
+- Loading indicator for Test Extract button
+
+### Fixed
+- Value history now persists to disk in /config directory
+
 ## [1.2.9] - 2026
 
 ### Changed
