@@ -4131,13 +4131,43 @@
                 return;
             }
 
+            // Get AI settings from form
+            const provider = document.getElementById('ai-provider').value;
+            const apiKey = document.getElementById('ai-apikey').value;
+            const apiUrl = document.getElementById('ai-apiurl').value;
+            const model = document.getElementById('ai-model').value;
+            const region = document.getElementById('ai-region').value;
+            const enableOcr = document.getElementById('ai-enable-ocr').checked;
+            const enableDescription = document.getElementById('ai-enable-description').checked;
+
+            if (!provider || provider === 'none') {
+                toast('Please select an AI provider first', 'error');
+                return;
+            }
+
+            if (!enableOcr && !enableDescription) {
+                toast('Enable OCR enhancement or scene description to test', 'error');
+                return;
+            }
+
             testBtn.disabled = true;
             testBtn.innerHTML = '<div class="loading" style="width: 16px; height: 16px;"></div> Testing...';
             resultsCard.style.display = 'block';
             resultsContent.innerHTML = '<div class="loading"></div><p style="text-align: center; margin-top: 12px;">Testing AI provider...</p>';
 
             try {
-                const payload = imageBase64 ? { image: imageBase64 } : { camera: cameraName };
+                const payload = {
+                    camera: cameraName,
+                    image: imageBase64,
+                    // Pass AI settings from form
+                    provider: provider,
+                    api_key: apiKey,
+                    api_url: apiUrl,
+                    model: model,
+                    region: region,
+                    enable_ocr: enableOcr,
+                    enable_description: enableDescription
+                };
                 const res = await fetch('api/ai-test', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

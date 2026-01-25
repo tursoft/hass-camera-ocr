@@ -2764,6 +2764,15 @@ def test_ai():
     camera_name = data.get('camera')
     image_base64 = data.get('image')
 
+    # Get AI settings from request (passed from form)
+    provider = data.get('provider')
+    api_key = data.get('api_key')
+    api_url = data.get('api_url')
+    model = data.get('model')
+    region = data.get('region')
+    enable_ocr = data.get('enable_ocr', False)
+    enable_description = data.get('enable_description', False)
+
     if not camera_name and not image_base64:
         return jsonify({'error': 'Camera name or image required'}), 400
 
@@ -2796,17 +2805,42 @@ def test_ai():
 
     result = {'success': True}
 
-    # Use camera-specific config if camera was provided, otherwise global config
-    camera_config = processor.cameras.get(camera_name) if camera_name else None
+    # Create a temporary camera config with the test AI settings
+    # This allows testing without saving the config first
+    if provider and provider != 'none':
+        # Use existing camera's saved API key if not provided in request
+        existing_camera = processor.cameras.get(camera_name) if camera_name else None
+        effective_api_key = api_key if api_key else (existing_camera.ai_api_key if existing_camera else '')
 
-    # Test scene description
-    if camera_config and camera_config.ai_enabled_for_description:
-        try:
-            description = AIService.describe_scene(image_base64, camera_config)
-            result['description'] = description
-        except Exception as e:
-            result['description_error'] = str(e)
-    elif not camera_config:
+        test_config = CameraConfig(
+            name='_test_',
+            stream_url='',
+            ai_provider=provider,
+            ai_api_key=effective_api_key,
+            ai_api_url=api_url or '',
+            ai_model=model or '',
+            ai_region=region or '',
+            ai_enabled_for_ocr=enable_ocr,
+            ai_enabled_for_description=enable_description
+        )
+
+        # Test scene description
+        if enable_description:
+            try:
+                description = AIService.describe_scene(image_base64, test_config)
+                result['description'] = description
+            except Exception as e:
+                result['description_error'] = str(e)
+
+        # Test OCR
+        if enable_ocr:
+            try:
+                ocr_result = AIService.enhance_ocr(image_base64, camera=test_config)
+                result['ocr'] = ocr_result
+            except Exception as e:
+                result['ocr_error'] = str(e)
+    else:
+        # Fallback to global config if no provider specified
         config = AIService.load_config()
         if config.enabled_for_description:
             try:
@@ -2815,15 +2849,6 @@ def test_ai():
             except Exception as e:
                 result['description_error'] = str(e)
 
-    # Test OCR
-    if camera_config and camera_config.ai_enabled_for_ocr:
-        try:
-            ocr_result = AIService.enhance_ocr(image_base64, camera=camera_config)
-            result['ocr'] = ocr_result
-        except Exception as e:
-            result['ocr_error'] = str(e)
-    elif not camera_config:
-        config = AIService.load_config()
         if config.enabled_for_ocr:
             try:
                 ocr_result = AIService.enhance_ocr(image_base64)
