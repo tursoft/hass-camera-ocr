@@ -8,7 +8,7 @@ capture_frame:
       required: true
       selector:
         entity:
-          integration: camera_data_extractor
+          integration: hass_camera_ocr
           domain: sensor
 
 update_roi:
@@ -21,7 +21,7 @@ update_roi:
       required: true
       selector:
         entity:
-          integration: camera_data_extractor
+          integration: hass_camera_ocr
           domain: sensor
     roi_x:
       name: X Position
@@ -70,7 +70,7 @@ use_template:
       required: true
       selector:
         entity:
-          integration: camera_data_extractor
+          integration: hass_camera_ocr
           domain: sensor
     template_name:
       name: Template Name

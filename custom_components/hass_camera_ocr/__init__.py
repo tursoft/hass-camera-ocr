@@ -88,8 +88,8 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 class DiscoveryView:
     """Discovery API view."""
 
-    url = "/api/camera_data_extractor/discover"
-    name = "api:camera_data_extractor:discover"
+    url = "/api/hass_camera_ocr/discover"
+    name = "api:hass_camera_ocr:discover"
     requires_auth = True
 
     def __init__(self, hass: HomeAssistant) -> None:

@@ -1,16 +1,23 @@
 <p align="center">
-  <img src="docs/images/logo-full.png" alt="Camera Data Extractor" width="400">
+  <img src="docs/images/logo-full.png" alt="Camera OCR" width="400">
 </p>
 
-<h1 align="center">Camera Data Extractor for Home Assistant</h1>
+<h1 align="center">Camera OCR for Home Assistant</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.1.2-blue.svg" alt="Version 1.1.2">
+  <img src="https://img.shields.io/badge/version-1.2.0-blue.svg" alt="Version 1.2.0">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License MIT">
-  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=tursoft&repository=ha-camera-data-extractor&category=integration">
+  <img src="https://img.shields.io/github/stars/tursoft/hass-camera-ocr?style=flat&logo=github" alt="GitHub Stars">
+  <img src="https://img.shields.io/github/forks/tursoft/hass-camera-ocr?style=flat&logo=github" alt="GitHub Forks">
+  <img src="https://img.shields.io/github/issues/tursoft/hass-camera-ocr?style=flat&logo=github" alt="GitHub Issues">
+  <img src="https://img.shields.io/github/downloads/tursoft/hass-camera-ocr/total?style=flat&logo=github" alt="Downloads">
+</p>
+
+<p align="center">
+  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=tursoft&repository=hass-camera-ocr&category=integration">
     <img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open in HACS">
   </a>
-  <a href="https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Ftursoft%2Fha-camera-data-extractor">
+  <a href="https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Ftursoft%2Fhass-camera-ocr">
     <img src="https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg" alt="Add Add-on Repository">
   </a>
 </p>
@@ -62,7 +69,7 @@ This is the easiest method for Home Assistant OS and Supervised installations. T
 
 #### Quick Install
 
-[![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Ftursoft%2Fha-camera-data-extractor)
+[![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Ftursoft%2Fhass-camera-ocr)
 
 Click the button above, or follow the manual steps below:
 
@@ -72,10 +79,10 @@ Click the button above, or follow the manual steps below:
 2. Click the three dots menu (⋮) in the top right → **Repositories**
 3. Add this repository URL:
    ```
-   https://github.com/tursoft/ha-camera-data-extractor
+   https://github.com/tursoft/hass-camera-ocr
    ```
 4. Click **Add** → **Close**
-5. Find "Camera Data Extractor" in the add-on store and click it
+5. Find "Camera OCR" in the add-on store and click it
 6. Click **Install**
 7. Configure your cameras in the **Configuration** tab
 8. Start the add-on
@@ -112,7 +119,7 @@ For advanced users or non-OS installations who want sensor entities.
 
 #### Quick Install
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=tursoft&repository=ha-camera-data-extractor&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=tursoft&repository=hass-camera-ocr&category=integration)
 
 Click the button above, or follow the manual steps below:
 
@@ -120,18 +127,18 @@ Click the button above, or follow the manual steps below:
 
 1. Open HACS in Home Assistant
 2. Click the three dots menu (⋮) → **Custom repositories**
-3. Add `https://github.com/tursoft/ha-camera-data-extractor` as an **Integration**
-4. Search for "Camera Data Extractor" and install
+3. Add `https://github.com/tursoft/hass-camera-ocr` as an **Integration**
+4. Search for "Camera OCR" and install
 5. Restart Home Assistant
 6. Go to **Settings** → **Devices & Services** → **Add Integration**
-7. Search for "Camera Data Extractor" and configure
+7. Search for "Camera OCR" and configure
 
 ### Method 3: Manual Installation
 
 For manual installation without HACS.
 
 1. Download the latest release from GitHub
-2. Extract and copy the `custom_components/camera_data_extractor` folder to your Home Assistant's `custom_components` directory
+2. Extract and copy the `custom_components/hass_camera_ocr` folder to your Home Assistant's `custom_components` directory
 3. Restart Home Assistant
 
 ---
@@ -178,7 +185,7 @@ brew install tesseract
 ### Adding a Camera
 
 1. Go to **Settings** → **Devices & Services** → **Add Integration**
-2. Search for "Camera Data Extractor"
+2. Search for "Camera OCR"
 3. Enter your camera details:
    - **Camera Name**: A friendly name for your camera
    - **Stream URL**: The RTSP or HTTP URL of your camera stream
@@ -198,7 +205,7 @@ brew install tesseract
 
 ### Using the Web UI Panel
 
-After installation, a new **Camera Data Extractor** panel appears in your Home Assistant sidebar.
+After installation, a new **Camera OCR** panel appears in your Home Assistant sidebar.
 
 1. **Cameras Tab**: View configured cameras and capture live frames
 2. **ROI Selection Tab**:
@@ -216,7 +223,7 @@ If your camera can pan/tilt/zoom, use template matching to find the correct regi
 2. Go to the ROI Selection tab
 3. Select the region containing the value
 4. Enter a template name and click "Save as Template"
-5. Use the `camera_data_extractor.use_template` service to update the ROI based on the current camera position
+5. Use the `hass_camera_ocr.use_template` service to update the ROI based on the current camera position
 
 ## Common Camera Stream URLs
 
@@ -234,22 +241,22 @@ If your camera can pan/tilt/zoom, use template matching to find the correct regi
 
 ## Services
 
-### `camera_data_extractor.capture_frame`
+### `hass_camera_ocr.capture_frame`
 
 Immediately capture a frame and update the sensor value.
 
 ```yaml
-service: camera_data_extractor.capture_frame
+service: hass_camera_ocr.capture_frame
 data:
   entity_id: sensor.boiler_temperature
 ```
 
-### `camera_data_extractor.update_roi`
+### `hass_camera_ocr.update_roi`
 
 Update the Region of Interest coordinates.
 
 ```yaml
-service: camera_data_extractor.update_roi
+service: hass_camera_ocr.update_roi
 data:
   entity_id: sensor.boiler_temperature
   roi_x: 100
@@ -258,12 +265,12 @@ data:
   roi_height: 80
 ```
 
-### `camera_data_extractor.use_template`
+### `hass_camera_ocr.use_template`
 
 Find and apply ROI from a saved template (for moving cameras).
 
 ```yaml
-service: camera_data_extractor.use_template
+service: hass_camera_ocr.use_template
 data:
   entity_id: sensor.boiler_temperature
   template_name: boiler_display
@@ -325,7 +332,7 @@ automation:
       - platform: time_pattern
         minutes: "/5"
     action:
-      - service: camera_data_extractor.use_template
+      - service: hass_camera_ocr.use_template
         data:
           entity_id: sensor.boiler_temperature
           template_name: boiler_display
@@ -374,7 +381,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-- [Report an Issue](https://github.com/tursoft/ha-camera-data-extractor/issues)
+- [Report an Issue](https://github.com/tursoft/hass-camera-ocr/issues)
 - [Home Assistant Community Forum](https://community.home-assistant.io/)
 
 ## Author

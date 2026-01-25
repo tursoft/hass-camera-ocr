@@ -49,7 +49,7 @@ class TemplateMatcher:
         Args:
             storage_path: Path to store reference templates
         """
-        self._storage_path = storage_path or "/config/custom_components/camera_data_extractor/templates"
+        self._storage_path = storage_path or "/config/custom_components/hass_camera_ocr/templates"
         self._templates: dict[str, ReferenceTemplate] = {}
         self._orb = cv2.ORB_create(nfeatures=500)
         self._bf_matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)

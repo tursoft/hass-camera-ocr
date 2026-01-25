@@ -1,6 +1,6 @@
 """Constants for the Camera Data Extractor integration."""
 
-DOMAIN = "camera_data_extractor"
+DOMAIN = "hass_camera_ocr"
 
 # Configuration keys
 CONF_CAMERA_NAME = "camera_name"

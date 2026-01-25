@@ -1,10 +1,17 @@
 # Changelog
 
+## [1.2.0] - 2026
+
+### Changed
+- Renamed project from "Camera Data Extractor" to "Camera OCR"
+- Renamed repository from ha-camera-data-extractor to hass-camera-ocr
+- Updated all internal references to new naming
+
 ## [1.1.2] - 2026
 
 ### Added
 - Persistent storage in /config directory - camera config survives uninstall/reinstall
-- Templates stored in /config/camera_data_extractor/templates/ for persistence
+- Templates stored in /config/hass_camera_ocr/templates/ for persistence
 - Auto-migration from options.json to persistent storage on first run
 
 ### Fixed

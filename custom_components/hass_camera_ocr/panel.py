@@ -25,7 +25,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     # Register static path for our panel files
     await hass.http.async_register_static_paths([
         StaticPathConfig(
-            "/camera_data_extractor/static",
+            "/hass_camera_ocr/static",
             str(panel_path),
             cache_headers=False,
         )
@@ -39,7 +39,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         sidebar_icon=PANEL_ICON,
         frontend_url_path="camera-data-extractor",
         config={
-            "url": "/camera_data_extractor/static/panel.html",
+            "url": "/hass_camera_ocr/static/panel.html",
         },
         require_admin=False,
     )

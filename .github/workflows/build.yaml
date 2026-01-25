@@ -15,7 +15,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/ha-camera-data-extractor
+  IMAGE_NAME: ${{ github.repository_owner }}/hass-camera-ocr
 
 jobs:
   lint:
@@ -37,8 +37,8 @@ jobs:
 
       - name: Lint with flake8
         run: |
-          flake8 camera_data_extractor/app --count --select=E9,F63,F7,F82 --show-source --statistics
-          flake8 camera_data_extractor/app --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+          flake8 hass_camera_ocr/app --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 hass_camera_ocr/app --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
 
   test:
     name: Test
@@ -64,7 +64,7 @@ jobs:
 
       - name: Run tests
         run: |
-          cd camera_data_extractor
+          cd hass_camera_ocr
           python -c "from app.server import app, CameraProcessor, CameraConfig; print('Import test passed')"
         continue-on-error: true
 
@@ -129,14 +129,14 @@ jobs:
       - name: Get base image
         id: base
         run: |
-          BASE=$(yq e '.build_from.${{ matrix.arch }}' camera_data_extractor/build.yaml)
+          BASE=$(yq e '.build_from.${{ matrix.arch }}' hass_camera_ocr/build.yaml)
           echo "image=$BASE" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: camera_data_extractor
-          file: camera_data_extractor/Dockerfile
+          context: hass_camera_ocr
+          file: hass_camera_ocr/Dockerfile
           platforms: ${{ matrix.platform }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -146,7 +146,7 @@ jobs:
             BUILD_ARCH=${{ matrix.arch }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             BUILD_DESCRIPTION=Extract numeric values from IP camera video streams using OCR
-            BUILD_NAME=Camera Data Extractor
+            BUILD_NAME=Camera OCR
             BUILD_REF=${{ github.sha }}
             BUILD_REPOSITORY=${{ github.repository }}
             BUILD_VERSION=${{ github.ref_name }}
@@ -164,8 +164,8 @@ jobs:
           echo "## Build Complete! :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Docker images published to:" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ghcr.io/${{ github.repository_owner }}/ha-camera-data-extractor-amd64\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ghcr.io/${{ github.repository_owner }}/ha-camera-data-extractor-aarch64\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ghcr.io/${{ github.repository_owner }}/ha-camera-data-extractor-armv7\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ghcr.io/${{ github.repository_owner }}/ha-camera-data-extractor-armhf\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ghcr.io/${{ github.repository_owner }}/ha-camera-data-extractor-i386\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ghcr.io/${{ github.repository_owner }}/hass-camera-ocr-amd64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ghcr.io/${{ github.repository_owner }}/hass-camera-ocr-aarch64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ghcr.io/${{ github.repository_owner }}/hass-camera-ocr-armv7\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ghcr.io/${{ github.repository_owner }}/hass-camera-ocr-armhf\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ghcr.io/${{ github.repository_owner }}/hass-camera-ocr-i386\`" >> $GITHUB_STEP_SUMMARY

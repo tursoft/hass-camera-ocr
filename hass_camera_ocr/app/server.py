@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Camera Data Extractor Add-on Server with Full Admin Interface and Template Matching."""
+"""Camera OCR Add-on Server with Full Admin Interface and Template Matching."""
 
 import os
 import json
@@ -36,7 +36,7 @@ CORS(app)
 # Paths - Use /config for persistent storage across reinstalls
 OPTIONS_PATH = os.environ.get('OPTIONS_PATH', '/data/options.json')
 DATA_PATH = os.environ.get('DATA_PATH', '/data')
-CONFIG_PATH = os.environ.get('CONFIG_PATH', '/config/camera_data_extractor')
+CONFIG_PATH = os.environ.get('CONFIG_PATH', '/config/hass_camera_ocr')
 CAMERAS_PATH = os.path.join(CONFIG_PATH, 'cameras.json')
 TEMPLATES_PATH = os.path.join(CONFIG_PATH, 'templates')
 
@@ -861,7 +861,7 @@ WEB_UI = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Camera Data Extractor</title>
+    <title>Camera OCR</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
@@ -1339,7 +1339,7 @@ WEB_UI = '''
                     <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
                     <circle cx="12" cy="13" r="4"></circle>
                 </svg>
-                Camera Data Extractor
+                Camera OCR
             </div>
             <nav class="nav">
                 <button class="nav-btn active" data-page="dashboard">Dashboard</button>
@@ -2572,6 +2572,6 @@ def health():
 
 
 if __name__ == '__main__':
-    logger.info("Starting Camera Data Extractor Add-on")
+    logger.info("Starting Camera OCR Add-on")
     processor.start()
     app.run(host='0.0.0.0', port=5000, threaded=True)

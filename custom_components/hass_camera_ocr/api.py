@@ -44,8 +44,8 @@ class CameraDataExtractorAPIView(HomeAssistantView):
 class CaptureFrameView(CameraDataExtractorAPIView):
     """API endpoint to capture a frame from a camera."""
 
-    url = "/api/camera_data_extractor/capture/{entry_id}"
-    name = "api:camera_data_extractor:capture"
+    url = "/api/hass_camera_ocr/capture/{entry_id}"
+    name = "api:hass_camera_ocr:capture"
 
     async def get(self, request: web.Request, entry_id: str) -> web.Response:
         """Capture a frame and return as base64 PNG."""
@@ -101,8 +101,8 @@ class CaptureFrameView(CameraDataExtractorAPIView):
 class SaveTemplateView(CameraDataExtractorAPIView):
     """API endpoint to save a reference template."""
 
-    url = "/api/camera_data_extractor/template/save"
-    name = "api:camera_data_extractor:template:save"
+    url = "/api/hass_camera_ocr/template/save"
+    name = "api:hass_camera_ocr:template:save"
 
     async def post(self, request: web.Request) -> web.Response:
         """Save a reference template from the current frame."""
@@ -179,8 +179,8 @@ class SaveTemplateView(CameraDataExtractorAPIView):
 class ListTemplatesView(CameraDataExtractorAPIView):
     """API endpoint to list available templates."""
 
-    url = "/api/camera_data_extractor/templates"
-    name = "api:camera_data_extractor:templates:list"
+    url = "/api/hass_camera_ocr/templates"
+    name = "api:hass_camera_ocr:templates:list"
 
     async def get(self, request: web.Request) -> web.Response:
         """List all available templates."""
@@ -203,8 +203,8 @@ class ListTemplatesView(CameraDataExtractorAPIView):
 class TemplatePreviewView(CameraDataExtractorAPIView):
     """API endpoint to get template preview."""
 
-    url = "/api/camera_data_extractor/template/preview/{name}"
-    name = "api:camera_data_extractor:template:preview"
+    url = "/api/hass_camera_ocr/template/preview/{name}"
+    name = "api:hass_camera_ocr:template:preview"
 
     async def get(self, request: web.Request, name: str) -> web.Response:
         """Get a preview image of a template."""
@@ -234,8 +234,8 @@ class TemplatePreviewView(CameraDataExtractorAPIView):
 class FindRegionView(CameraDataExtractorAPIView):
     """API endpoint to find region in current frame using template."""
 
-    url = "/api/camera_data_extractor/find"
-    name = "api:camera_data_extractor:find"
+    url = "/api/hass_camera_ocr/find"
+    name = "api:hass_camera_ocr:find"
 
     async def post(self, request: web.Request) -> web.Response:
         """Find the template region in the current frame."""
@@ -320,8 +320,8 @@ class FindRegionView(CameraDataExtractorAPIView):
 class DeleteTemplateView(CameraDataExtractorAPIView):
     """API endpoint to delete a template."""
 
-    url = "/api/camera_data_extractor/template/delete/{name}"
-    name = "api:camera_data_extractor:template:delete"
+    url = "/api/hass_camera_ocr/template/delete/{name}"
+    name = "api:hass_camera_ocr:template:delete"
 
     async def delete(self, request: web.Request, name: str) -> web.Response:
         """Delete a template."""
@@ -351,8 +351,8 @@ class DeleteTemplateView(CameraDataExtractorAPIView):
 class ListEntriesView(CameraDataExtractorAPIView):
     """API endpoint to list all configured camera entries."""
 
-    url = "/api/camera_data_extractor/entries"
-    name = "api:camera_data_extractor:entries"
+    url = "/api/hass_camera_ocr/entries"
+    name = "api:hass_camera_ocr:entries"
 
     async def get(self, request: web.Request) -> web.Response:
         """List all configured camera entries."""
