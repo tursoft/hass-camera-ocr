@@ -1095,11 +1095,20 @@
 
                 <!-- Value History Section -->
                 <div class="card" style="margin-top: 20px;">
-                    <div class="card-title">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-                        </svg>
-                        Value History (Last 20 readings)
+                    <div class="card-title" style="justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                            </svg>
+                            Value History (Last 20 readings)
+                        </div>
+                        <button class="btn btn-sm" onclick="clearHistory()" style="background: var(--error);" title="Clear all history">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                            Clear
+                        </button>
                     </div>
                     <div id="history-container">
                         <p style="color: var(--text-3);">No history available yet</p>
@@ -1815,6 +1824,31 @@
                 renderHistory();
             } catch (e) {
                 console.error('Failed to load history:', e);
+            }
+        }
+
+        async function clearHistory() {
+            if (!selectedHistoryCamera) {
+                showToast('No camera selected', 'error');
+                return;
+            }
+            if (!confirm(`Clear all history for "${selectedHistoryCamera}"?`)) {
+                return;
+            }
+            try {
+                const res = await fetch(`api/history/${encodeURIComponent(selectedHistoryCamera)}`, {
+                    method: 'DELETE'
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    showToast('History cleared', 'success');
+                    loadHistory();
+                } else {
+                    showToast(data.message || 'Failed to clear history', 'error');
+                }
+            } catch (e) {
+                console.error('Failed to clear history:', e);
+                showToast('Failed to clear history', 'error');
             }
         }
 

@@ -6,6 +6,7 @@
 - **Per-Camera AI Configuration**: Each camera can now have its own AI provider settings
 - AI Settings page now shows camera selector to configure AI per camera
 - Support for different AI/OCR providers per camera
+- **Clear History Button**: Clear value history per camera from the dashboard
 
 ### Changed
 - Moved HTML from server.py to separate template file (templates/index.html)

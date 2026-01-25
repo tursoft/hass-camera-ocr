@@ -2292,6 +2292,26 @@ def get_camera_history(camera_name):
     return jsonify(history)
 
 
+@app.route('/api/history', methods=['DELETE'])
+def clear_all_history():
+    """Clear all value history."""
+    processor.history = {}
+    processor._save_history()
+    return jsonify({'status': 'ok', 'message': 'All history cleared'})
+
+
+@app.route('/api/history/<camera_name>', methods=['DELETE'])
+def clear_camera_history(camera_name):
+    """Clear value history for a specific camera."""
+    from urllib.parse import unquote
+    camera_name = unquote(camera_name)
+    if camera_name in processor.history:
+        del processor.history[camera_name]
+        processor._save_history()
+        return jsonify({'status': 'ok', 'message': f'History cleared for {camera_name}'})
+    return jsonify({'status': 'ok', 'message': 'No history found for camera'})
+
+
 @app.route('/api/cameras', methods=['GET'])
 def get_cameras():
     """Get camera configurations (with sensitive data masked)."""
