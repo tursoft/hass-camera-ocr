@@ -2843,9 +2843,12 @@ def validate_roi(camera_name, roi_id):
     """Save user-validated value for a saved ROI for OCR training."""
     from urllib.parse import unquote
     camera_name = unquote(camera_name)
+    roi_id = unquote(roi_id)
 
     data = request.json
     validated_value = data.get('value')
+
+    logger.info(f"Validating ROI: camera={camera_name}, roi_id={roi_id}, value={validated_value}")
 
     if validated_value is None:
         return jsonify({'error': 'Value required'}), 400
@@ -2853,23 +2856,29 @@ def validate_roi(camera_name, roi_id):
     # Load saved ROIs
     rois_file = os.path.join(SAVED_ROIS_PATH, f'{camera_name}.json')
     if not os.path.exists(rois_file):
+        logger.warning(f"ROIs file not found: {rois_file}")
         return jsonify({'error': 'No saved ROIs for this camera'}), 404
 
     try:
         with open(rois_file, 'r') as f:
             rois = json.load(f)
 
+        logger.info(f"Found {len(rois)} ROIs, looking for id={roi_id}")
+        logger.info(f"Available ROI IDs: {[r.get('id') for r in rois]}")
+
         # Find and update the ROI
         found = False
         for roi in rois:
-            if roi.get('id') == roi_id:
+            if str(roi.get('id')) == str(roi_id):
                 roi['validated_value'] = validated_value
                 roi['validated_at'] = time.time()
                 found = True
+                logger.info(f"Found and updated ROI {roi_id}")
                 break
 
         if not found:
-            return jsonify({'error': 'ROI not found'}), 404
+            logger.warning(f"ROI {roi_id} not found in {len(rois)} ROIs")
+            return jsonify({'error': f'ROI not found. Available IDs: {[r.get("id") for r in rois]}'}), 404
 
         # Save updated ROIs
         with open(rois_file, 'w') as f:

@@ -3499,7 +3499,7 @@
             }
 
             try {
-                const res = await fetch(`api/saved-rois/${encodeURIComponent(name)}/${roiId}/validate`, {
+                const res = await fetch(`api/saved-rois/${encodeURIComponent(name)}/${encodeURIComponent(roiId)}/validate`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ value: value })
