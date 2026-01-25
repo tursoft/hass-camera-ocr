@@ -11,26 +11,88 @@ Extract numeric values from IP camera video streams using OCR (Optical Character
 - **Auto-Discovery**: Discover ONVIF-compatible cameras on your network
 - **Web UI Panel**: Easy-to-use interface for configuration and ROI selection
 - **Home Assistant Integration**: Exposes values as sensor entities for automations and monitoring
+- **Two Installation Methods**: Available as both a Custom Integration and an Add-on
 
 ## Installation
 
-### HACS (Recommended)
+Choose one of the following installation methods based on your needs:
+
+| Method | Best For | Requires |
+|--------|----------|----------|
+| **Add-on** | Home Assistant OS / Supervised | Nothing extra |
+| **Custom Integration** | Any HA installation | Tesseract OCR on host |
+
+---
+
+### Method 1: Add-on Repository (Recommended for HA OS)
+
+This is the easiest method for Home Assistant OS and Supervised installations. The add-on runs in its own container with all dependencies included.
+
+1. Go to **Settings** → **Add-ons** → **Add-on Store**
+2. Click the three dots menu (⋮) in the top right → **Repositories**
+3. Add this repository URL:
+   ```
+   https://github.com/tursoft/ha-camera-data-extractor
+   ```
+4. Click **Add** → **Close**
+5. Find "Camera Data Extractor" in the add-on store and click it
+6. Click **Install**
+7. Configure your cameras in the **Configuration** tab
+8. Start the add-on
+9. Click **Open Web UI** to access the interface
+
+#### Add-on Configuration Example
+
+```yaml
+cameras:
+  - name: Boiler Temperature
+    stream_url: rtsp://192.168.1.100:554/stream1
+    username: admin
+    password: your_password
+    value_name: Temperature
+    unit: °C
+    roi_x: 100
+    roi_y: 50
+    roi_width: 200
+    roi_height: 80
+    preprocessing: auto
+  - name: Pressure Gauge
+    stream_url: http://192.168.1.101/video
+    value_name: Pressure
+    unit: bar
+scan_interval: 30
+log_level: info
+```
+
+---
+
+### Method 2: HACS Custom Integration
+
+For advanced users or non-OS installations who want sensor entities.
 
 1. Open HACS in Home Assistant
-2. Click the three dots menu (⋮) → Custom repositories
-3. Add `https://github.com/tursoft/ha-camera-data-extractor` as an Integration
+2. Click the three dots menu (⋮) → **Custom repositories**
+3. Add `https://github.com/tursoft/ha-camera-data-extractor` as an **Integration**
 4. Search for "Camera Data Extractor" and install
 5. Restart Home Assistant
+6. Go to **Settings** → **Devices & Services** → **Add Integration**
+7. Search for "Camera Data Extractor" and configure
 
-### Manual Installation
+### Method 3: Manual Installation
+
+For manual installation without HACS.
 
 1. Download the latest release from GitHub
 2. Extract and copy the `custom_components/camera_data_extractor` folder to your Home Assistant's `custom_components` directory
 3. Restart Home Assistant
 
-## Prerequisites
+---
 
-This integration requires **Tesseract OCR** to be installed on your Home Assistant system.
+## Prerequisites (Custom Integration Only)
+
+> **Note**: If you installed the **Add-on**, skip this section - all dependencies are included.
+
+The custom integration requires **Tesseract OCR** to be installed on your Home Assistant system.
 
 ### Home Assistant OS / Supervised
 

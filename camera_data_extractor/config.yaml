@@ -1,0 +1,44 @@
+name: Camera Data Extractor
+description: Extract numeric values from IP camera video streams using OCR
+version: 1.0.0
+slug: camera_data_extractor
+url: https://github.com/tursoft/ha-camera-data-extractor
+arch:
+  - amd64
+  - aarch64
+  - armv7
+  - armhf
+  - i386
+homeassistant_api: true
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:camera-enhance
+panel_title: Camera OCR
+map:
+  - config:rw
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: Web interface (Ingress)
+options:
+  cameras: []
+  scan_interval: 30
+  log_level: info
+schema:
+  cameras:
+    - name: str
+      stream_url: str
+      username: str?
+      password: str?
+      value_name: str?
+      unit: str?
+      roi_x: int?
+      roi_y: int?
+      roi_width: int?
+      roi_height: int?
+      preprocessing: list(none|auto|threshold|adaptive|invert)?
+      template_name: str?
+  scan_interval: int(5,3600)
+  log_level: list(debug|info|warning|error)
+image: ghcr.io/tursoft/ha-camera-data-extractor-{arch}
+init: false

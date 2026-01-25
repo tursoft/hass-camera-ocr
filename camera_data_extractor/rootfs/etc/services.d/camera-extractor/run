@@ -1,0 +1,23 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Start the Camera Data Extractor service
+# ==============================================================================
+
+bashio::log.info "Starting Camera Data Extractor..."
+
+# Get configuration
+LOG_LEVEL=$(bashio::config 'log_level')
+SCAN_INTERVAL=$(bashio::config 'scan_interval')
+
+export LOG_LEVEL
+export SCAN_INTERVAL
+export OPTIONS_PATH="/data/options.json"
+export DATA_PATH="/data"
+export TEMPLATES_PATH="/data/templates"
+
+# Create directories
+mkdir -p "${TEMPLATES_PATH}"
+
+# Start the application
+cd /app
+exec python3 server.py
