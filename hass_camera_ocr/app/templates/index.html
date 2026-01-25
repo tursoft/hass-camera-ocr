@@ -1206,7 +1206,7 @@
                                             Train OCR
                                         </button>
                                         <button class="btn btn-primary btn-sm" onclick="testAllROIs()" id="test-all-btn">Test All</button>
-                                        <button class="btn btn-success btn-sm" onclick="saveCurrentROI()">Save Current</button>
+                                        <button class="btn btn-success btn-sm" onclick="saveCurrentROI()">Save ROI</button>
                                     </div>
                                 </div>
                                 <div class="saved-rois-list" id="saved-rois-list"></div>
@@ -1266,9 +1266,6 @@
                                 <button class="btn btn-success btn-sm" onclick="saveTemplate()">Save Template</button>
                             </div>
 
-                            <button class="btn btn-primary" onclick="applyROIToCamera()" style="width: 100%;">
-                                Save ROI to Camera
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -3047,7 +3044,7 @@
                     `}).join('');
                 } else {
                     section.style.display = 'block';
-                    list.innerHTML = '<p style="color: var(--text-3); font-size: 12px;">No saved ROIs. Draw an ROI and click "Save Current ROI".</p>';
+                    list.innerHTML = '<p style="color: var(--text-3); font-size: 12px;">No saved ROIs. Draw an ROI and click "Save ROI".</p>';
                 }
             } catch (e) {
                 console.error('Failed to load saved ROIs:', e);
@@ -3119,7 +3116,18 @@
                 });
 
                 if (res.ok) {
-                    toast('ROI saved', 'success');
+                    // Also save to camera config as the active ROI
+                    await fetch(`api/cameras/${encodeURIComponent(name)}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            roi_x: roiX,
+                            roi_y: roiY,
+                            roi_width: roiW,
+                            roi_height: roiH
+                        })
+                    });
+                    toast('ROI saved and set as active', 'success');
                     loadSavedROIs();
                 } else {
                     toast('Failed to save ROI', 'error');
@@ -3148,8 +3156,8 @@
             }
         }
 
-        function applySavedROI(roi) {
-            // Apply the saved ROI coordinates
+        async function applySavedROI(roi) {
+            // Apply the saved ROI coordinates to UI
             currentROI = {
                 x: roi.x * zoomLevel,
                 y: roi.y * zoomLevel,
@@ -3158,7 +3166,28 @@
             };
             updateROIDisplay();
             drawROI();
-            toast('ROI applied', 'success');
+
+            // Also save to camera config
+            const name = document.getElementById('live-camera-select').value;
+            if (name) {
+                try {
+                    await fetch(`api/cameras/${encodeURIComponent(name)}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            roi_x: roi.x,
+                            roi_y: roi.y,
+                            roi_width: roi.width,
+                            roi_height: roi.height
+                        })
+                    });
+                    toast('ROI applied and saved to camera', 'success');
+                } catch (e) {
+                    toast('ROI applied but failed to save to camera', 'warning');
+                }
+            } else {
+                toast('ROI applied', 'success');
+            }
         }
 
         async function testAllROIs() {
