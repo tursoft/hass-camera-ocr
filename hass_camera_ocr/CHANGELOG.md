@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.3] - 2026
+
+### Fixed
+- Version bump to trigger add-on update
+
 ## [1.2.2] - 2026
 
 ### Fixed
