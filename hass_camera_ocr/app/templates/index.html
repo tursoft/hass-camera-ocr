@@ -931,6 +931,8 @@
             width: 100%;
             max-height: 90vh;
             overflow-y: auto;
+            border: 2px solid var(--primary);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
         }
         .history-detail-header {
             padding: 16px 20px;
@@ -1268,7 +1270,16 @@
                             </div>
 
                             <div class="card" style="margin: 0;">
-                                <div class="card-title">Extraction Result</div>
+                                <div class="card-title" style="justify-content: space-between;">
+                                    <span>Extraction Result</span>
+                                    <button class="btn btn-success btn-sm" onclick="saveCurrentROI()" id="add-to-roi-btn" style="display: none;">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                                        </svg>
+                                        Save ROI
+                                    </button>
+                                </div>
                                 <div class="result-display" id="result-display">
                                     <div id="result-roi-preview" style="display: none; margin-bottom: 12px; border-radius: 6px; overflow: hidden; background: var(--bg);"></div>
                                     <div class="result-value" id="result-value">--</div>
@@ -3018,11 +3029,15 @@
                     document.getElementById('result-value').style.color =
                         data.confidence > 50 ? 'var(--success)' :
                         data.confidence > 30 ? 'var(--warning)' : 'var(--error)';
+
+                    // Show Save ROI button on successful extraction
+                    document.getElementById('add-to-roi-btn').style.display = 'flex';
                 } else {
                     document.getElementById('result-roi-preview').style.display = 'none';
                     document.getElementById('result-value').textContent = 'Error';
                     document.getElementById('result-raw').textContent = data.error || 'Unknown error';
                     document.getElementById('result-confidence').textContent = '';
+                    document.getElementById('add-to-roi-btn').style.display = 'none';
                 }
             } catch (e) {
                 toast('Extraction failed', 'error');
