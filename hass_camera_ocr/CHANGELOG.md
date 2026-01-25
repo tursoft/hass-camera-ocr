@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.5] - 2026
+
+### Added
+- Value history display on dashboard (last 20 readings per camera)
+- History tabs to switch between cameras
+- Unit preset dropdown with common units (°C, °F, bar, psi, %, V, W, etc.)
+- Port scanning for camera discovery (finds cameras without ONVIF support)
+- Improved camera discovery with both ONVIF and port scanning
+
+### Changed
+- Unit input changed from text field to dropdown with presets
+
 ## [1.2.4] - 2026
 
 ### Added

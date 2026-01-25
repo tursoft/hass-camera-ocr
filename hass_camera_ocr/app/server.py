@@ -394,16 +394,100 @@ class ONVIFDiscovery:
         return templates.get(manufacturer, f'rtsp://{{user}}:{{pass}}@{ip}:554/stream1')
 
 
+class PortScanner:
+    """Scan network for cameras by checking common RTSP/HTTP ports."""
+
+    COMMON_PORTS = [554, 8554, 80, 8080, 443, 8443]
+
+    @classmethod
+    def scan_network(cls, timeout: float = 0.5) -> list:
+        """Scan local network for cameras by port scanning."""
+        cameras = []
+
+        # Get local network range
+        try:
+            # Get local IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+
+            # Calculate network range (assume /24)
+            ip_parts = local_ip.split('.')
+            base_ip = '.'.join(ip_parts[:3])
+            logger.info(f"Scanning network {base_ip}.0/24 for cameras...")
+
+            # Scan common IP ranges for cameras
+            def check_ip(ip):
+                for port in cls.COMMON_PORTS:
+                    try:
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        sock.settimeout(timeout)
+                        result = sock.connect_ex((ip, port))
+                        sock.close()
+
+                        if result == 0:
+                            logger.info(f"Found open port {port} on {ip}")
+                            return {'ip': ip, 'port': port}
+                    except:
+                        pass
+                return None
+
+            # Scan in parallel using threads
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            ips_to_scan = [f"{base_ip}.{i}" for i in range(1, 255)]
+            found = []
+
+            with ThreadPoolExecutor(max_workers=50) as executor:
+                futures = {executor.submit(check_ip, ip): ip for ip in ips_to_scan}
+                for future in as_completed(futures, timeout=30):
+                    try:
+                        result = future.result()
+                        if result:
+                            found.append(result)
+                    except:
+                        pass
+
+            # Convert found IPs to camera format
+            seen = set()
+            for item in found:
+                ip = item['ip']
+                if ip in seen or ip == local_ip:
+                    continue
+                seen.add(ip)
+
+                # Only include if RTSP port is open
+                if item['port'] in [554, 8554]:
+                    cameras.append({
+                        'ip': ip,
+                        'port': item['port'],
+                        'manufacturer': 'Unknown',
+                        'model': '',
+                        'name': f"Camera @ {ip}",
+                        'stream_url': f"rtsp://{{user}}:{{pass}}@{ip}:{item['port']}/stream1"
+                    })
+
+            logger.info(f"Port scan found {len(cameras)} potential cameras")
+
+        except Exception as e:
+            logger.error(f"Port scan error: {e}")
+
+        return cameras
+
+
 class CameraProcessor:
     """Process camera streams and extract values with template matching support."""
 
     def __init__(self):
         self.cameras: dict[str, CameraConfig] = {}
         self.values: dict[str, ExtractedValue] = {}
+        self.history: dict[str, list] = {}  # Store last 20 values per camera
         self.template_matcher = TemplateMatcher(TEMPLATES_PATH)
         self._lock = threading.Lock()
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self.MAX_HISTORY = 20
 
     def load_config(self) -> int:
         """Load configuration - first from persistent storage, then from options.json."""
@@ -842,6 +926,22 @@ class CameraProcessor:
 
         result = self.extract_value(camera, frame)
         self.values[camera.name] = result
+
+        # Add to history
+        if camera.name not in self.history:
+            self.history[camera.name] = []
+
+        self.history[camera.name].append({
+            'value': result.value,
+            'timestamp': result.timestamp,
+            'confidence': result.confidence,
+            'raw_text': result.raw_text,
+            'error': result.error
+        })
+
+        # Keep only last MAX_HISTORY entries
+        if len(self.history[camera.name]) > self.MAX_HISTORY:
+            self.history[camera.name] = self.history[camera.name][-self.MAX_HISTORY:]
 
         if result.value is not None:
             logger.info(f"{camera.name}: {result.value} {camera.unit} (confidence: {result.confidence:.1f}%)")
@@ -1414,6 +1514,58 @@ WEB_UI = '''
 
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
+        /* History table */
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .history-table th, .history-table td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        .history-table th {
+            background: var(--bg);
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        .history-table tr:hover {
+            background: var(--bg);
+        }
+        .history-table .value-cell {
+            font-weight: 600;
+            color: var(--primary);
+        }
+        .history-table .error-cell {
+            color: var(--error);
+        }
+        .history-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .history-tab {
+            padding: 6px 14px;
+            border: 1px solid var(--border);
+            background: var(--card-bg);
+            color: var(--text-secondary);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .history-tab:hover {
+            background: var(--bg);
+        }
+        .history-tab.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+
         /* Empty state */
         .empty-state {
             text-align: center;
@@ -1499,6 +1651,19 @@ WEB_UI = '''
                             <p>Add cameras to start extracting values</p>
                             <button class="btn btn-primary" onclick="showPage('cameras')">Add Camera</button>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Value History Section -->
+                <div class="card" style="margin-top: 20px;">
+                    <div class="card-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                        </svg>
+                        Value History (Last 20 readings)
+                    </div>
+                    <div id="history-container">
+                        <p style="color: var(--text-3);">No history available yet</p>
                     </div>
                 </div>
             </div>
@@ -1768,7 +1933,24 @@ WEB_UI = '''
                     </div>
                     <div class="form-group">
                         <label class="form-label">Unit</label>
-                        <input type="text" id="camera-unit" class="form-input" placeholder="°C">
+                        <select id="camera-unit" class="form-select">
+                            <option value="">None</option>
+                            <option value="°C">°C (Celsius)</option>
+                            <option value="°F">°F (Fahrenheit)</option>
+                            <option value="K">K (Kelvin)</option>
+                            <option value="bar">bar (Pressure)</option>
+                            <option value="psi">psi (Pressure)</option>
+                            <option value="kPa">kPa (Pressure)</option>
+                            <option value="%">% (Percentage)</option>
+                            <option value="V">V (Voltage)</option>
+                            <option value="A">A (Amperage)</option>
+                            <option value="W">W (Watts)</option>
+                            <option value="kWh">kWh (Energy)</option>
+                            <option value="L">L (Liters)</option>
+                            <option value="m³">m³ (Cubic meters)</option>
+                            <option value="Hz">Hz (Frequency)</option>
+                            <option value="RPM">RPM (Rotation)</option>
+                        </select>
                     </div>
                 </div>
                 <div class="form-group">
@@ -1942,9 +2124,93 @@ WEB_UI = '''
                 const res = await fetch('api/values');
                 values = await res.json();
                 renderValues();
+                loadHistory();
             } catch (e) {
                 console.error('Failed to load values:', e);
             }
+        }
+
+        let historyData = {};
+        let selectedHistoryCamera = null;
+
+        async function loadHistory() {
+            try {
+                const res = await fetch('api/history');
+                historyData = await res.json();
+                renderHistory();
+            } catch (e) {
+                console.error('Failed to load history:', e);
+            }
+        }
+
+        function renderHistory() {
+            const container = document.getElementById('history-container');
+            const cameraNames = Object.keys(historyData);
+
+            if (cameraNames.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-3);">No history available yet</p>';
+                return;
+            }
+
+            // Auto-select first camera if none selected
+            if (!selectedHistoryCamera || !historyData[selectedHistoryCamera]) {
+                selectedHistoryCamera = cameraNames[0];
+            }
+
+            // Render tabs for each camera
+            const tabs = cameraNames.map(name => `
+                <button class="history-tab ${name === selectedHistoryCamera ? 'active' : ''}"
+                        onclick="selectHistoryCamera('${name}')">${name}</button>
+            `).join('');
+
+            // Render table for selected camera
+            const history = historyData[selectedHistoryCamera] || [];
+            const camera = cameras[selectedHistoryCamera];
+            const unit = camera?.unit || '';
+
+            let tableHtml = '';
+            if (history.length > 0) {
+                const rows = history.slice().reverse().map(entry => {
+                    const time = new Date(entry.timestamp * 1000).toLocaleString();
+                    const valueDisplay = entry.error
+                        ? `<span class="error-cell">${entry.error}</span>`
+                        : `<span class="value-cell">${entry.value !== null ? entry.value : '--'} ${unit}</span>`;
+                    return `
+                        <tr>
+                            <td>${time}</td>
+                            <td>${valueDisplay}</td>
+                            <td>${entry.confidence ? entry.confidence.toFixed(0) + '%' : '--'}</td>
+                            <td>${entry.raw_text || '--'}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                tableHtml = `
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Value</th>
+                                <th>Confidence</th>
+                                <th>Raw Text</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                `;
+            } else {
+                tableHtml = '<p style="color: var(--text-3);">No readings yet for this camera</p>';
+            }
+
+            container.innerHTML = `
+                <div class="history-tabs">${tabs}</div>
+                ${tableHtml}
+            `;
+        }
+
+        function selectHistoryCamera(name) {
+            selectedHistoryCamera = name;
+            renderHistory();
         }
 
         async function loadTemplates() {
@@ -2787,6 +3053,19 @@ def get_values():
     return jsonify(result)
 
 
+@app.route('/api/history')
+def get_history():
+    """Get value history for all cameras."""
+    return jsonify(processor.history)
+
+
+@app.route('/api/history/<camera_name>')
+def get_camera_history(camera_name):
+    """Get value history for a specific camera."""
+    history = processor.history.get(camera_name, [])
+    return jsonify(history)
+
+
 @app.route('/api/cameras', methods=['GET'])
 def get_cameras():
     """Get camera configurations."""
@@ -2986,8 +3265,26 @@ def get_template_image(name):
 
 @app.route('/api/discover', methods=['POST'])
 def discover_cameras():
-    """Discover ONVIF cameras on the network."""
-    cameras = ONVIFDiscovery.discover(timeout=5.0)
+    """Discover cameras on the network using ONVIF and port scanning."""
+    cameras = []
+
+    # Try ONVIF discovery first
+    logger.info("Starting ONVIF discovery...")
+    onvif_cameras = ONVIFDiscovery.discover(timeout=5.0)
+    cameras.extend(onvif_cameras)
+    logger.info(f"ONVIF discovery found {len(onvif_cameras)} cameras")
+
+    # Also try port scanning for cameras that don't support ONVIF
+    logger.info("Starting port scan discovery...")
+    port_cameras = PortScanner.scan_network(timeout=0.3)
+
+    # Add port-scanned cameras that weren't found by ONVIF
+    seen_ips = {cam['ip'] for cam in cameras}
+    for cam in port_cameras:
+        if cam['ip'] not in seen_ips:
+            cameras.append(cam)
+
+    logger.info(f"Total cameras discovered: {len(cameras)}")
     return jsonify(cameras)
 
 
