@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.2.26] - 2026
+
+### Added
+- **Multi-Provider Configuration UI**: New settings page to configure multiple OCR providers per camera
+  - Drag-and-drop provider ordering
+  - Per-provider credential configuration (API keys, endpoints)
+  - Visual provider status indicators
+  - Test button to run all configured providers
+- **Provider Results in History Dialog**: Click history entry to see results from all providers with confidence scores
+
+### Changed
+- Replaced AI Settings page with unified Multi-Provider Configuration
+- Provider execution order now user-configurable via drag-and-drop
+
 ## [1.2.25] - 2026
 
 ### Added
