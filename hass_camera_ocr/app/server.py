@@ -3341,15 +3341,11 @@ def capture_frame_api(camera_name):
     if error:
         return jsonify({'error': error}), 500
 
-    # Draw ROI if configured
+    # Draw ROI rectangle only (value shown in sidebar, not on image)
     if camera.roi_width > 0 and camera.roi_height > 0:
-        val = processor.values.get(camera_name)
         frame = processor.draw_roi_on_frame(
             frame,
-            {'x': camera.roi_x, 'y': camera.roi_y, 'width': camera.roi_width, 'height': camera.roi_height},
-            val.value if val else None,
-            camera.unit,
-            val.confidence if val else 0
+            {'x': camera.roi_x, 'y': camera.roi_y, 'width': camera.roi_width, 'height': camera.roi_height}
         )
 
     _, buffer = cv2.imencode('.png', frame)
