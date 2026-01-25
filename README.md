@@ -5,7 +5,7 @@
 <h1 align="center">Camera OCR for Home Assistant</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.17-blue.svg" alt="Version 1.2.17">
+  <img src="https://img.shields.io/badge/version-1.2.18-blue.svg" alt="Version 1.2.17">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License MIT">
   <img src="https://img.shields.io/github/stars/tursoft/hass-camera-ocr?style=flat&logo=github" alt="GitHub Stars">
   <img src="https://img.shields.io/github/forks/tursoft/hass-camera-ocr?style=flat&logo=github" alt="GitHub Forks">

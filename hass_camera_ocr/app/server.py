@@ -2318,6 +2318,7 @@ WEB_UI = '''
         .value-card-status { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
         .value-card-status.ok { background: rgba(76, 175, 80, 0.2); color: var(--success); }
         .value-card-status.error { background: rgba(244, 67, 54, 0.2); color: var(--error); }
+        .value-card-status.pending { background: rgba(255, 193, 7, 0.2); color: #ffc107; }
 
         .value-card-value {
             font-size: 42px;
@@ -4317,9 +4318,11 @@ WEB_UI = '''
         // Render Functions
         function renderValues() {
             const grid = document.getElementById('values-grid');
-            const entries = Object.entries(values);
+            const cameraEntries = Object.entries(cameras);
+            const valueEntries = Object.entries(values);
 
-            if (entries.length === 0) {
+            // No cameras configured at all
+            if (cameraEntries.length === 0) {
                 grid.innerHTML = `
                     <div class="empty-state">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -4334,15 +4337,33 @@ WEB_UI = '''
                 return;
             }
 
-            grid.innerHTML = entries.map(([name, data]) => {
-                const camera = cameras[name] || {};
+            // Cameras configured but no values extracted yet
+            if (valueEntries.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                        <h3>Waiting for first extraction</h3>
+                        <p>${cameraEntries.length} camera${cameraEntries.length > 1 ? 's' : ''} configured. Values will appear after first scan.</p>
+                        <div class="loading" style="margin-top: 16px;"></div>
+                    </div>
+                `;
+                return;
+            }
+
+            // Show all cameras, using values if available
+            grid.innerHTML = cameraEntries.map(([name, camera]) => {
+                const data = values[name] || {};
+                const hasValue = data.value !== undefined && data.value !== null;
                 const hasError = data.error;
-                const statusClass = hasError ? 'error' : 'ok';
-                const statusText = hasError ? 'Error' : 'OK';
-                const displayValue = data.value !== null ? data.value : '--';
+                const statusClass = hasError ? 'error' : (hasValue ? 'ok' : 'pending');
+                const statusText = hasError ? 'Error' : (hasValue ? 'OK' : 'Waiting');
+                const displayValue = hasValue ? data.value : '--';
                 const time = data.timestamp ? new Date(data.timestamp * 1000).toLocaleTimeString() : '';
                 const confidence = data.confidence || 0;
-                const isLowConfidence = confidence < 80 && !hasError;
+                const isLowConfidence = hasValue && confidence < 80 && !hasError;
                 const valueClass = isLowConfidence ? 'low-confidence' : '';
 
                 const description = data.video_description || '';
@@ -4353,11 +4374,11 @@ WEB_UI = '''
                             <div class="value-card-status ${statusClass}">${statusText}</div>
                         </div>
                         <div class="value-card-value ${valueClass}">
-                            ${displayValue}<span class="value-card-unit">${camera.unit || data.unit || ''}</span>
+                            ${displayValue}<span class="value-card-unit">${camera.unit || ''}</span>
                         </div>
                         <div class="value-card-meta">
                             ${hasError ? `<span style="color: var(--error);">${data.error}</span>` :
-                              `Confidence: ${confidence.toFixed(0)}% • ${time}`}
+                              (hasValue ? `Confidence: ${confidence.toFixed(0)}% • ${time}` : 'Waiting for first scan...')}
                             ${isLowConfidence ? '<span class="low-confidence-text"> (Low)</span>' : ''}
                         </div>
                         ${description ? `<div class="value-card-description">${description}</div>` : ''}
@@ -5170,13 +5191,13 @@ WEB_UI = '''
                 if (rois.length > 0) {
                     section.style.display = 'block';
                     list.innerHTML = rois.map(roi => `
-                        <div class="saved-roi-item" data-roi-id="${roi.id}">
+                        <div class="saved-roi-item" data-roi-id="${roi.id}" onclick="showSavedRoiDetail('${roi.id}', ${JSON.stringify(roi).replace(/"/g, '&quot;')})">
                             <img src="api/saved-rois/${encodeURIComponent(name)}/${roi.id}/image" alt="ROI">
                             <div class="saved-roi-buttons">
-                                <button class="saved-roi-apply" onclick="applySavedROI(${JSON.stringify(roi.roi).replace(/"/g, '&quot;')})" title="Apply">&#x2714;</button>
-                                <button class="saved-roi-test" onclick="testSavedROI(${JSON.stringify(roi.roi).replace(/"/g, '&quot;')}, '${roi.id}')" title="Test">&#x25B6;</button>
+                                <button class="saved-roi-apply" onclick="event.stopPropagation(); applySavedROI(${JSON.stringify(roi.roi).replace(/"/g, '&quot;')})" title="Apply">&#x2714;</button>
+                                <button class="saved-roi-test" onclick="testSavedROI(${JSON.stringify(roi.roi).replace(/"/g, '&quot;')}, '${roi.id}', event)" title="Test">&#x25B6;</button>
                             </div>
-                            <button class="saved-roi-delete" onclick="deleteSavedROI('${name}', '${roi.id}')">&times;</button>
+                            <button class="saved-roi-delete" onclick="event.stopPropagation(); deleteSavedROI('${name}', '${roi.id}')">&times;</button>
                             <div class="saved-roi-info">
                                 <div class="saved-roi-value" id="roi-value-${roi.id}">${roi.extracted_value !== undefined && roi.extracted_value !== null ? roi.extracted_value : '--'}</div>
                                 <div class="saved-roi-time">${new Date(roi.timestamp * 1000).toLocaleString()}</div>
@@ -5384,18 +5405,26 @@ WEB_UI = '''
             btn.textContent = 'Test All';
         }
 
-        async function testSavedROI(roi, roiId) {
+        // Store last test results for ROI detail dialog
+        let savedRoiTestResults = {};
+
+        async function testSavedROI(roi, roiId, event) {
+            if (event) event.stopPropagation();
             const name = document.getElementById('live-camera-select').value;
             if (!name) {
                 toast('Please select a camera first', 'error');
                 return;
             }
 
-            // Show loading in the value display
+            // Show busy indicator on the card
+            const cardEl = document.querySelector(`.saved-roi-item[data-roi-id="${roiId}"]`);
             const valueEl = document.getElementById(`roi-value-${roiId}`);
+            if (cardEl) {
+                cardEl.style.opacity = '0.6';
+                cardEl.style.pointerEvents = 'none';
+            }
             if (valueEl) {
-                valueEl.textContent = '...';
-                valueEl.style.color = 'var(--text-3)';
+                valueEl.innerHTML = '<div class="loading" style="width: 16px; height: 16px; margin: 0 auto;"></div>';
             }
 
             try {
@@ -5411,6 +5440,14 @@ WEB_UI = '''
 
                 const data = await res.json();
 
+                // Store result for detail dialog
+                savedRoiTestResults[roiId] = {
+                    ...data,
+                    roi: roi,
+                    timestamp: Date.now() / 1000,
+                    camera_name: name
+                };
+
                 if (data.success && valueEl) {
                     valueEl.textContent = data.value !== null ? data.value : '--';
                     valueEl.style.color = data.confidence > 50 ? 'var(--success)' : 'var(--warning)';
@@ -5425,7 +5462,80 @@ WEB_UI = '''
                     valueEl.style.color = 'var(--error)';
                 }
                 toast('Test failed', 'error');
+            } finally {
+                // Restore card state
+                if (cardEl) {
+                    cardEl.style.opacity = '1';
+                    cardEl.style.pointerEvents = 'auto';
+                }
             }
+        }
+
+        function showSavedRoiDetail(roiId, roiData) {
+            const name = document.getElementById('live-camera-select').value;
+            const testResult = savedRoiTestResults[roiId] || {};
+            const camera = cameras[name] || {};
+            const unit = camera.unit || '';
+
+            const time = roiData.timestamp ? new Date(roiData.timestamp * 1000).toLocaleString() : '--';
+            const value = testResult.value !== undefined ? testResult.value : (roiData.extracted_value !== undefined ? roiData.extracted_value : '--');
+            const confidence = testResult.confidence || roiData.confidence || 0;
+            const barClass = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
+            const rawText = testResult.raw_text || roiData.raw_text || '--';
+
+            const dialog = document.createElement('div');
+            dialog.className = 'history-detail-dialog';
+            dialog.onclick = (e) => { if (e.target === dialog) dialog.remove(); };
+            dialog.innerHTML = `
+                <div class="history-detail-content">
+                    <div class="history-detail-header">
+                        <h3>Saved ROI Details</h3>
+                        <button class="modal-close" onclick="this.closest('.history-detail-dialog').remove()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="history-detail-body">
+                        <img class="history-detail-image" src="api/saved-rois/${encodeURIComponent(name)}/${roiId}/image" onerror="this.style.display='none'">
+                        <div class="history-detail-grid">
+                            <div class="history-detail-item">
+                                <label>Value</label>
+                                <div class="value" style="color: ${confidence < 80 && confidence > 0 ? 'var(--error)' : 'var(--primary)'};">
+                                    ${value} ${unit}
+                                </div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>Saved On</label>
+                                <div class="value">${time}</div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>Confidence</label>
+                                <div class="value">
+                                    ${confidence > 0 ? confidence.toFixed(1) + '%' : '--'}
+                                    ${confidence > 0 ? `<div class="confidence-bar" style="margin-top: 4px;"><div class="confidence-bar-fill ${barClass}" style="width: ${confidence}%"></div></div>` : ''}
+                                </div>
+                            </div>
+                            <div class="history-detail-item">
+                                <label>Raw Text</label>
+                                <div class="value">${rawText}</div>
+                            </div>
+                            <div class="history-detail-item full-width">
+                                <label>ROI Coordinates</label>
+                                <div class="value" style="font-family: monospace; font-size: 12px;">
+                                    X: ${roiData.roi?.x || 0}, Y: ${roiData.roi?.y || 0}, W: ${roiData.roi?.width || 0}, H: ${roiData.roi?.height || 0}
+                                </div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 16px; display: flex; gap: 8px;">
+                            <button class="btn btn-primary" onclick="applySavedROI(${JSON.stringify(roiData.roi)}); this.closest('.history-detail-dialog').remove();">Apply ROI</button>
+                            <button class="btn btn-secondary" onclick="testSavedROI(${JSON.stringify(roiData.roi)}, '${roiId}'); this.closest('.history-detail-dialog').remove();">Test Extract</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(dialog);
         }
 
         // Templates

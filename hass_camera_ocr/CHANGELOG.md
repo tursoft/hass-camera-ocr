@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.18] - 2026
+
+### Added
+- **Saved ROI Detail Dialog**: Click on any saved ROI to view full details with Apply/Test buttons
+- **ROI Test Busy Indicator**: Visual feedback when testing saved ROIs
+
+### Fixed
+- Dashboard now shows cameras waiting for first extraction instead of "No cameras configured"
+- Dashboard status shows "Waiting" for cameras that haven't been scanned yet
+
 ## [1.2.17] - 2026
 
 ### Changed
