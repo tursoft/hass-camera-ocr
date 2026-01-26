@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.30] - 2026
+
+### Fixed
+- Fixed "Failed to open stream" error for HTTP image URLs (snapshot URLs like `/snapshot.jpg`)
+- Added missing `requests` import that caused discovery and HTTP capture to fail
+- HTTP image URLs now use `requests.get()` for better authentication and static image support
+- HTTP video streams (MJPEG) now use FFmpeg backend for improved compatibility
+- Better error messages for HTTP connection issues (timeout, auth failure, 404)
+
 ## [1.2.29] - 2026
 
 ### Fixed

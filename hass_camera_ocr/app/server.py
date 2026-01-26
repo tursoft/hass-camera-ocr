@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Camera OCR Add-on Server with Full Admin Interface and Template Matching."""
 
-VERSION = "1.2.29"
+VERSION = "1.2.30"
 
 import os
 import json
@@ -18,6 +18,7 @@ from dataclasses import dataclass, asdict, field
 from typing import Any, Optional, Tuple
 from urllib.parse import urlparse
 
+import requests
 import cv2
 import numpy as np
 import pytesseract
@@ -2101,12 +2102,85 @@ class CameraProcessor:
 
         return url
 
+    def _is_static_image_url(self, url: str) -> bool:
+        """Check if URL points to a static image file."""
+        parsed = urlparse(url.lower())
+        path = parsed.path
+        image_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp')
+        return path.endswith(image_extensions)
+
+    def _capture_http_image(self, url: str, username: str = "", password: str = "") -> Tuple[Optional[np.ndarray], Optional[str]]:
+        """Capture an image from HTTP URL using requests (for static images and some MJPEG streams)."""
+        try:
+            auth = None
+            if username and password:
+                auth = (username, password)
+
+            # Remove embedded credentials from URL if using auth parameter
+            clean_url = url
+            if auth and '@' in url:
+                # URL has embedded credentials, extract clean URL
+                parsed = urlparse(url)
+                clean_url = f"{parsed.scheme}://{parsed.hostname}"
+                if parsed.port:
+                    clean_url += f":{parsed.port}"
+                clean_url += parsed.path
+                if parsed.query:
+                    clean_url += f"?{parsed.query}"
+
+            logger.info(f"Fetching HTTP image: {clean_url[:50]}...")
+
+            response = requests.get(
+                url,
+                auth=auth,
+                timeout=15,
+                stream=True,
+                headers={'Accept': 'image/*,*/*'}
+            )
+            response.raise_for_status()
+
+            # Read image data
+            image_data = response.content
+            if not image_data:
+                return None, "Empty response from server"
+
+            # Decode image
+            nparr = np.frombuffer(image_data, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+            if frame is None:
+                return None, "Failed to decode image data"
+
+            logger.info(f"Successfully captured HTTP image: {frame.shape}")
+            return frame, None
+
+        except requests.exceptions.Timeout:
+            return None, "Connection timeout - server did not respond"
+        except requests.exceptions.ConnectionError as e:
+            return None, f"Connection failed: {str(e)}"
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response else 'unknown'
+            if status == 401:
+                return None, "Authentication failed - check username/password"
+            elif status == 403:
+                return None, "Access forbidden - check credentials and permissions"
+            elif status == 404:
+                return None, "URL not found - check the camera URL path"
+            return None, f"HTTP error {status}: {str(e)}"
+        except Exception as e:
+            logger.exception(f"Error fetching HTTP image: {e}")
+            return None, str(e)
+
     def _open_video_capture(self, url: str) -> cv2.VideoCapture:
         """Open video capture with proper backend and options for RTSP."""
         # Set FFmpeg options for RTSP streams
         if url.lower().startswith('rtsp://'):
             # Use FFmpeg backend with TCP transport (more reliable than UDP)
             os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'rtsp_transport;tcp|analyzeduration;5000000|probesize;5000000'
+            cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+        elif url.lower().startswith('http://') or url.lower().startswith('https://'):
+            # Use FFmpeg backend for HTTP streams (MJPEG, etc.)
+            os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'analyzeduration;5000000|probesize;5000000'
             cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
         else:
             cap = cv2.VideoCapture(url)
@@ -2123,6 +2197,18 @@ class CameraProcessor:
         try:
             url = self.get_authenticated_url(camera)
             logger.info(f"Capturing frame from: {url[:50]}...")
+
+            # For HTTP URLs, try HTTP image capture first (works for static images and some MJPEG)
+            if url.lower().startswith('http://') or url.lower().startswith('https://'):
+                # Try HTTP capture first (handles static images and auth better)
+                frame, error = self._capture_http_image(url, camera.username, camera.password)
+                if frame is not None:
+                    return frame, None
+                # If HTTP capture failed and URL looks like a static image, don't try VideoCapture
+                if self._is_static_image_url(url):
+                    return None, error or "Failed to fetch image from URL"
+                # For stream URLs, fall through to VideoCapture
+                logger.info(f"HTTP capture failed, trying VideoCapture: {error}")
 
             cap = self._open_video_capture(url)
 
@@ -2159,6 +2245,18 @@ class CameraProcessor:
                 full_url = f"{protocol}://{username}:{password}@{rest}"
 
             logger.info(f"Capturing frame from URL: {full_url[:50]}...")
+
+            # For HTTP URLs, try HTTP image capture first (works for static images and some MJPEG)
+            if full_url.lower().startswith('http://') or full_url.lower().startswith('https://'):
+                # Try HTTP capture first (handles static images and auth better)
+                frame, error = self._capture_http_image(full_url, username, password)
+                if frame is not None:
+                    return frame, None
+                # If HTTP capture failed and URL looks like a static image, don't try VideoCapture
+                if self._is_static_image_url(full_url):
+                    return None, error or "Failed to fetch image from URL"
+                # For stream URLs, fall through to VideoCapture
+                logger.info(f"HTTP capture failed, trying VideoCapture: {error}")
 
             cap = self._open_video_capture(full_url)
 
