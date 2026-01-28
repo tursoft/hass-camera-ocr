@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.36] - 2026
+
+### Added
+- **Rotated ROI Rectangle Visualization**: The blue ROI rectangle now visually rotates on the canvas when rotation is set
+  - Both EDIT and TEST modes show the rotated rectangle
+  - Corner handles rotate with the rectangle
+  - Dark overlay mask properly clips the rotated ROI area
+  - Center point indicator shows rotation pivot
+  - Arc and angle label show rotation direction and amount
+
 ## [1.2.35] - 2026
 
 ### Changed

@@ -3338,85 +3338,107 @@
                 const y = currentROI.y * imageScale;
                 const w = currentROI.width * imageScale;
                 const h = currentROI.height * imageScale;
+                const rotation = currentROI.rotation || 0;
+                const rotationRad = rotation * Math.PI / 180;
+                const centerX = x + w / 2;
+                const centerY = y + h / 2;
 
                 if (previewMode === 'test') {
-                    // TEST mode: Full overlay with dark mask, border, handles, and value
-                    // Draw semi-transparent overlay outside ROI
+                    // TEST mode: Full overlay with dark mask, rotated border, and value
+                    // Draw semi-transparent overlay over entire canvas
                     ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-                    ctx.fillRect(0, 0, canvas.width, y);
-                    ctx.fillRect(0, y + h, canvas.width, canvas.height - y - h);
-                    ctx.fillRect(0, y, x, h);
-                    ctx.fillRect(x + w, y, canvas.width - x - w, h);
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                    // Draw ROI border
+                    // Clear the ROI area (with rotation)
+                    ctx.save();
+                    ctx.translate(centerX, centerY);
+                    ctx.rotate(rotationRad);
+                    ctx.clearRect(-w/2, -h/2, w, h);
+
+                    // Draw ROI border (rotated)
                     ctx.strokeStyle = '#03a9f4';
                     ctx.lineWidth = 2;
-                    ctx.strokeRect(x, y, w, h);
+                    ctx.strokeRect(-w/2, -h/2, w, h);
 
-                    // Draw corner handles
+                    // Draw corner handles (rotated)
                     const handleSize = 8;
                     ctx.fillStyle = '#03a9f4';
-                    ctx.fillRect(x - handleSize/2, y - handleSize/2, handleSize, handleSize);
-                    ctx.fillRect(x + w - handleSize/2, y - handleSize/2, handleSize, handleSize);
-                    ctx.fillRect(x - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
-                    ctx.fillRect(x + w - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+                    ctx.fillRect(-w/2 - handleSize/2, -h/2 - handleSize/2, handleSize, handleSize);
+                    ctx.fillRect(w/2 - handleSize/2, -h/2 - handleSize/2, handleSize, handleSize);
+                    ctx.fillRect(-w/2 - handleSize/2, h/2 - handleSize/2, handleSize, handleSize);
+                    ctx.fillRect(w/2 - handleSize/2, h/2 - handleSize/2, handleSize, handleSize);
 
-                    // Draw value if available
+                    ctx.restore();
+
+                    // Draw value if available (not rotated, at top of ROI)
                     const val = values[document.getElementById('live-camera-select').value];
                     if (val && val.value !== null) {
                         const label = val.value + (cameras[val.camera_name]?.unit || '');
                         ctx.font = 'bold 16px sans-serif';
                         const textWidth = ctx.measureText(label).width;
 
+                        // Position label above the rotated ROI
+                        const labelX = centerX - textWidth/2 - 6;
+                        const labelY = centerY - Math.max(w, h)/2 - 30;
+
                         ctx.fillStyle = '#03a9f4';
-                        ctx.fillRect(x, y - 25, textWidth + 12, 22);
+                        ctx.fillRect(labelX, labelY, textWidth + 12, 22);
 
                         ctx.fillStyle = 'white';
-                        ctx.fillText(label, x + 6, y - 8);
+                        ctx.fillText(label, labelX + 6, labelY + 16);
                     }
                 } else {
-                    // EDIT mode: Only blue border for drawing feedback
+                    // EDIT mode: Only blue border for drawing feedback (with rotation)
+                    ctx.save();
+                    ctx.translate(centerX, centerY);
+                    ctx.rotate(rotationRad);
+
                     ctx.strokeStyle = '#03a9f4';
                     ctx.lineWidth = 2;
-                    ctx.strokeRect(x, y, w, h);
+                    ctx.strokeRect(-w/2, -h/2, w, h);
 
-                    // Draw corner handles for resize
+                    // Draw corner handles for resize (rotated)
                     const handleSize = 8;
                     ctx.fillStyle = '#03a9f4';
-                    ctx.fillRect(x - handleSize/2, y - handleSize/2, handleSize, handleSize);
-                    ctx.fillRect(x + w - handleSize/2, y - handleSize/2, handleSize, handleSize);
-                    ctx.fillRect(x - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
-                    ctx.fillRect(x + w - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
+                    ctx.fillRect(-w/2 - handleSize/2, -h/2 - handleSize/2, handleSize, handleSize);
+                    ctx.fillRect(w/2 - handleSize/2, -h/2 - handleSize/2, handleSize, handleSize);
+                    ctx.fillRect(-w/2 - handleSize/2, h/2 - handleSize/2, handleSize, handleSize);
+                    ctx.fillRect(w/2 - handleSize/2, h/2 - handleSize/2, handleSize, handleSize);
+
+                    ctx.restore();
                 }
 
                 // Draw rotation indicator if rotation is set
-                if (currentROI.rotation && currentROI.rotation !== 0) {
-                    const rotation = currentROI.rotation;
-                    const centerX = x + w / 2;
-                    const centerY = y + h / 2;
+                if (rotation !== 0) {
+                    // Draw center point
+                    ctx.fillStyle = '#ff9800';
+                    ctx.beginPath();
+                    ctx.arc(centerX, centerY, 4, 0, Math.PI * 2);
+                    ctx.fill();
 
                     // Draw rotation arc indicator
                     ctx.strokeStyle = '#ff9800';
                     ctx.lineWidth = 2;
                     ctx.beginPath();
                     const startAngle = -Math.PI / 2;
-                    const endAngle = startAngle + (rotation * Math.PI / 180);
-                    const arcRadius = Math.min(w, h) / 4;
+                    const endAngle = startAngle + rotationRad;
+                    const arcRadius = Math.min(w, h) / 3;
                     ctx.arc(centerX, centerY, arcRadius, startAngle, endAngle, rotation < 0);
                     ctx.stroke();
 
                     // Draw arrow at end of arc
                     const arrowX = centerX + arcRadius * Math.cos(endAngle);
                     const arrowY = centerY + arcRadius * Math.sin(endAngle);
-                    ctx.fillStyle = '#ff9800';
                     ctx.beginPath();
-                    ctx.arc(arrowX, arrowY, 4, 0, Math.PI * 2);
+                    ctx.arc(arrowX, arrowY, 5, 0, Math.PI * 2);
                     ctx.fill();
 
                     // Draw rotation label
                     ctx.font = 'bold 12px sans-serif';
                     ctx.fillStyle = '#ff9800';
-                    ctx.fillText(rotation + '°', centerX + arcRadius + 8, centerY);
+                    ctx.textAlign = 'center';
+                    ctx.fillText(rotation + '°', centerX, centerY - arcRadius - 10);
+                    ctx.textAlign = 'left'; // Reset
                 }
             }
         }
