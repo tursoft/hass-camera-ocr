@@ -259,6 +259,7 @@ git push
 | 1.2.10 | Persistent history, saved ROI thumbnails, loading indicator |
 | 1.2.11 | Test ROI button, Test All ROIs, improved OCR preprocessing |
 | 1.2.12 | Cloud OCR providers (Google Vision, Azure, AWS), low confidence indicators |
+| 1.2.31 | EasyOCR and PaddleOCR local OCR providers |
 
 ## Testing Checklist
 

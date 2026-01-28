@@ -35,6 +35,15 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 RUN pip3 install --no-cache-dir --break-system-packages \
     transformers
 
+# Install EasyOCR (uses PyTorch, already installed)
+RUN pip3 install --no-cache-dir --break-system-packages \
+    easyocr
+
+# Install PaddleOCR with CPU-only PaddlePaddle
+RUN pip3 install --no-cache-dir --break-system-packages \
+    paddlepaddle \
+    paddleocr
+
 # Copy application files
 COPY rootfs /
 

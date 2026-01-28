@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Camera OCR Add-on Server with Full Admin Interface and Template Matching."""
 
-VERSION = "1.2.30"
+VERSION = "1.2.31"
 
 import os
 import json
@@ -35,6 +35,26 @@ try:
 except ImportError:
     logger_ml = logging.getLogger('ml_service')
     logger_ml.warning("ML dependencies not available. Install torch, transformers, Pillow for ML features.")
+
+# EasyOCR dependency (optional)
+EASYOCR_AVAILABLE = False
+easyocr_reader = None
+try:
+    import easyocr
+    EASYOCR_AVAILABLE = True
+    logger.info("EasyOCR is available")
+except ImportError:
+    logger.info("EasyOCR not available. Install easyocr for EasyOCR support.")
+
+# PaddleOCR dependency (optional)
+PADDLEOCR_AVAILABLE = False
+paddleocr_engine = None
+try:
+    from paddleocr import PaddleOCR
+    PADDLEOCR_AVAILABLE = True
+    logger.info("PaddleOCR is available")
+except ImportError:
+    logger.info("PaddleOCR not available. Install paddleocr for PaddleOCR support.")
 
 # Configure logging
 log_level = os.environ.get('LOG_LEVEL', 'info').upper()
@@ -2446,6 +2466,106 @@ class CameraProcessor:
                     return ProviderResult(provider='ml', value=None, raw_text='',
                                          confidence=0, error=str(e))
 
+            elif provider == 'easyocr':
+                # EasyOCR - supports multiple languages, good for various fonts
+                global easyocr_reader
+                if not EASYOCR_AVAILABLE:
+                    return ProviderResult(provider='easyocr', value=None, raw_text='',
+                                         confidence=0, error='EasyOCR not available. Install easyocr package.')
+
+                try:
+                    # Initialize reader on first use (lazy loading)
+                    if easyocr_reader is None:
+                        logger.info("Initializing EasyOCR reader...")
+                        easyocr_reader = easyocr.Reader(['en'], gpu=False)
+                        logger.info("EasyOCR reader initialized")
+
+                    # Preprocess image for better OCR
+                    processed = self.preprocess_image(roi_frame, camera.preprocessing or 'auto')
+
+                    # Run EasyOCR
+                    results = easyocr_reader.readtext(processed)
+
+                    if results:
+                        # Combine all detected text
+                        raw_texts = [r[1] for r in results]
+                        confidences = [r[2] for r in results]
+                        raw_text = ' '.join(raw_texts)
+                        avg_confidence = sum(confidences) / len(confidences) * 100
+
+                        # Extract numeric value
+                        numbers = re.findall(r'[-+]?\d*\.?\d+', raw_text)
+                        value = numbers[0] if numbers else None
+
+                        return ProviderResult(
+                            provider='easyocr',
+                            value=value,
+                            raw_text=raw_text,
+                            confidence=avg_confidence
+                        )
+                    else:
+                        return ProviderResult(provider='easyocr', value=None, raw_text='',
+                                             confidence=0, error='No text detected')
+
+                except Exception as e:
+                    logger.error(f"EasyOCR error: {e}")
+                    return ProviderResult(provider='easyocr', value=None, raw_text='',
+                                         confidence=0, error=str(e))
+
+            elif provider == 'paddleocr':
+                # PaddleOCR - high accuracy, especially for structured text
+                global paddleocr_engine
+                if not PADDLEOCR_AVAILABLE:
+                    return ProviderResult(provider='paddleocr', value=None, raw_text='',
+                                         confidence=0, error='PaddleOCR not available. Install paddleocr package.')
+
+                try:
+                    # Initialize PaddleOCR on first use (lazy loading)
+                    if paddleocr_engine is None:
+                        logger.info("Initializing PaddleOCR engine...")
+                        paddleocr_engine = PaddleOCR(use_angle_cls=True, lang='en', use_gpu=False, show_log=False)
+                        logger.info("PaddleOCR engine initialized")
+
+                    # Preprocess image for better OCR
+                    processed = self.preprocess_image(roi_frame, camera.preprocessing or 'auto')
+
+                    # Run PaddleOCR
+                    results = paddleocr_engine.ocr(processed, cls=True)
+
+                    if results and results[0]:
+                        # Extract text and confidence from results
+                        raw_texts = []
+                        confidences = []
+                        for line in results[0]:
+                            if line and len(line) >= 2:
+                                text_info = line[1]
+                                if isinstance(text_info, tuple) and len(text_info) >= 2:
+                                    raw_texts.append(text_info[0])
+                                    confidences.append(text_info[1])
+
+                        if raw_texts:
+                            raw_text = ' '.join(raw_texts)
+                            avg_confidence = sum(confidences) / len(confidences) * 100
+
+                            # Extract numeric value
+                            numbers = re.findall(r'[-+]?\d*\.?\d+', raw_text)
+                            value = numbers[0] if numbers else None
+
+                            return ProviderResult(
+                                provider='paddleocr',
+                                value=value,
+                                raw_text=raw_text,
+                                confidence=avg_confidence
+                            )
+
+                    return ProviderResult(provider='paddleocr', value=None, raw_text='',
+                                         confidence=0, error='No text detected')
+
+                except Exception as e:
+                    logger.error(f"PaddleOCR error: {e}")
+                    return ProviderResult(provider='paddleocr', value=None, raw_text='',
+                                         confidence=0, error=str(e))
+
             elif provider in ['google-vision', 'azure-ocr', 'aws-textract']:
                 # Cloud OCR providers
                 _, buffer = cv2.imencode('.jpg', roi_frame)
@@ -3797,6 +3917,41 @@ def get_ml_status():
         'available': False,
         'error': 'ML dependencies not installed'
     })
+
+
+@app.route('/api/ocr/providers', methods=['GET'])
+def get_ocr_providers():
+    """Get available OCR providers and their status."""
+    providers = {
+        'tesseract': {
+            'available': True,
+            'name': 'Tesseract OCR',
+            'description': 'Classic OCR engine, good for clean text',
+            'local': True
+        },
+        'ml': {
+            'available': ML_AVAILABLE,
+            'name': 'ML (TrOCR)',
+            'description': 'Deep learning OCR using Microsoft TrOCR model',
+            'local': True,
+            'error': None if ML_AVAILABLE else 'ML dependencies not installed (torch, transformers)'
+        },
+        'easyocr': {
+            'available': EASYOCR_AVAILABLE,
+            'name': 'EasyOCR',
+            'description': 'Deep learning OCR with multi-language support',
+            'local': True,
+            'error': None if EASYOCR_AVAILABLE else 'EasyOCR not installed'
+        },
+        'paddleocr': {
+            'available': PADDLEOCR_AVAILABLE,
+            'name': 'PaddleOCR',
+            'description': 'High accuracy OCR by Baidu, excellent for structured text',
+            'local': True,
+            'error': None if PADDLEOCR_AVAILABLE else 'PaddleOCR not installed'
+        }
+    }
+    return jsonify(providers)
 
 
 @app.route('/api/ml/test', methods=['POST'])

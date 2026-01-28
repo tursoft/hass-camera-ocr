@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.31] - 2026
+
+### Added
+- **EasyOCR Provider**: New local OCR engine using deep learning, supports multiple languages and fonts
+- **PaddleOCR Provider**: High-accuracy OCR engine by Baidu, excellent for structured text and digital displays
+- **OCR Providers Status API**: New `/api/ocr/providers` endpoint to check availability of all local OCR engines
+- Tesseract, EasyOCR, PaddleOCR, and ML (TrOCR) now all shown explicitly in provider selection UI
+
+### Technical
+- EasyOCR uses lazy loading to minimize startup time
+- PaddleOCR configured with CPU-only PaddlePaddle for compatibility
+- Both new engines support the existing preprocessing pipeline
+
 ## [1.2.30] - 2026
 
 ### Fixed

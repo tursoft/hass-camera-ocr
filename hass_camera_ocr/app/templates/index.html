@@ -2304,6 +2304,8 @@
             if (entry.provider_results && entry.provider_results.length > 0) {
                 const providerNames = {
                     'tesseract': 'Tesseract OCR',
+                    'easyocr': 'EasyOCR',
+                    'paddleocr': 'PaddleOCR',
                     'ml': 'ML (TrOCR)',
                     'openai': 'OpenAI',
                     'anthropic': 'Anthropic',
@@ -4367,6 +4369,8 @@
         // AI/OCR Multi-Provider Settings
         const PROVIDER_INFO = {
             'tesseract': { name: 'Tesseract OCR', needsKey: false, needsUrl: false, local: true },
+            'easyocr': { name: 'EasyOCR', needsKey: false, needsUrl: false, local: true },
+            'paddleocr': { name: 'PaddleOCR', needsKey: false, needsUrl: false, local: true },
             'ml': { name: 'ML (TrOCR)', needsKey: false, needsUrl: false, local: true },
             'openai': { name: 'OpenAI (GPT-4o)', needsKey: true, needsUrl: false, local: false },
             'anthropic': { name: 'Anthropic (Claude)', needsKey: true, needsUrl: false, local: false },
