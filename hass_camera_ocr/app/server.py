@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Camera OCR Add-on Server with Full Admin Interface and Template Matching."""
 
-VERSION = "1.2.36"
+VERSION = "1.2.37"
 
 import os
 import json
@@ -2059,9 +2059,21 @@ class CameraProcessor:
                     use_template_matching=cam_config.get('use_template_matching', False),
                     min_value=cam_config.get('min_value'),
                     max_value=cam_config.get('max_value'),
+                    ai_provider=cam_config.get('ai_provider', 'none'),
+                    ai_api_key=cam_config.get('ai_api_key', ''),
+                    ai_api_url=cam_config.get('ai_api_url', ''),
+                    ai_model=cam_config.get('ai_model', ''),
+                    ai_region=cam_config.get('ai_region', ''),
+                    ai_enabled_for_ocr=cam_config.get('ai_enabled_for_ocr', False),
+                    ai_enabled_for_description=cam_config.get('ai_enabled_for_description', False),
+                    ocr_providers=cam_config.get('ocr_providers', ['tesseract']),
+                    provider_configs=cam_config.get('provider_configs', {}),
+                    use_ml_roi_locator=cam_config.get('use_ml_roi_locator', False),
                 )
                 self.cameras[camera.name] = camera
-                logger.info(f"Loaded camera: {camera.name}")
+                # Log OCR config for debugging
+                pc_keys = {k: list(v.keys()) if isinstance(v, dict) else type(v).__name__ for k, v in camera.provider_configs.items()}
+                logger.info(f"Loaded camera: {camera.name}, ocr_providers={camera.ocr_providers}, provider_configs_keys={pc_keys}")
 
             return scan_interval
 
@@ -2091,6 +2103,13 @@ class CameraProcessor:
             # Update cameras if provided
             if cameras_list is not None:
                 config['cameras'] = cameras_list
+                # Log OCR config for each camera being saved
+                for cam in cameras_list:
+                    cam_name = cam.get('name', 'unknown')
+                    ocr_providers = cam.get('ocr_providers', [])
+                    provider_configs = cam.get('provider_configs', {})
+                    pc_summary = {k: list(v.keys()) if isinstance(v, dict) else type(v).__name__ for k, v in provider_configs.items()}
+                    logger.debug(f"Saving camera '{cam_name}': ocr_providers={ocr_providers}, provider_configs_keys={pc_summary}")
 
             # Update settings if provided
             if settings:
@@ -2114,10 +2133,12 @@ class CameraProcessor:
             # Reload config
             self.load_config()
 
-            logger.info("Configuration saved")
+            logger.info("Configuration saved successfully")
             return True
         except Exception as e:
             logger.error(f"Error saving config: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
 
     def get_authenticated_url(self, camera: CameraConfig) -> str:
@@ -3196,6 +3217,13 @@ def get_cameras():
             cam_dict['password'] = '••••••••'
         if cam_dict.get('ai_api_key'):
             cam_dict['ai_api_key'] = '••••••••'
+        # Mask API keys in provider_configs but add has_api_key flag
+        provider_configs = cam_dict.get('provider_configs', {})
+        if isinstance(provider_configs, dict):
+            for provider, config in provider_configs.items():
+                if isinstance(config, dict) and config.get('api_key'):
+                    config['has_api_key'] = True
+                    config['api_key'] = '••••••••'  # Mask for security
         result[name] = cam_dict
     return jsonify(result)
 
@@ -3257,13 +3285,42 @@ def update_camera(name):
     """Update a camera."""
     data = request.get_json()
 
+    logger.info(f"Updating camera '{name}' with data keys: {list(data.keys())}")
+    if 'ocr_providers' in data:
+        logger.info(f"OCR providers received: {data.get('ocr_providers')}")
+    if 'provider_configs' in data:
+        # Log provider_configs without exposing API keys
+        pc = data.get('provider_configs', {})
+        pc_summary = {k: list(v.keys()) if isinstance(v, dict) else type(v).__name__ for k, v in pc.items()}
+        logger.info(f"Provider configs received: {pc_summary}")
+
     if name not in processor.cameras:
         return jsonify({'error': 'Camera not found'}), 404
 
+    cam = processor.cameras[name]
+
+    # Build updated camera config, merging provider_configs API keys properly
+    # If sent provider_configs has empty api_key but existing has one, preserve existing
+    new_provider_configs = data.get('provider_configs', getattr(cam, 'provider_configs', {}))
+    existing_configs = getattr(cam, 'provider_configs', {})
+
+    # Merge: preserve existing API keys if new config doesn't provide them or sends masked value
+    if isinstance(new_provider_configs, dict) and isinstance(existing_configs, dict):
+        for provider, new_cfg in new_provider_configs.items():
+            if isinstance(new_cfg, dict):
+                existing_cfg = existing_configs.get(provider, {})
+                if isinstance(existing_cfg, dict):
+                    new_key = new_cfg.get('api_key', '')
+                    existing_key = existing_cfg.get('api_key', '')
+                    # Preserve existing key if: new key is empty, missing, or is the masked placeholder
+                    if existing_key and (not new_key or new_key == '••••••••' or '•' in new_key):
+                        new_provider_configs[provider]['api_key'] = existing_key
+                        logger.debug(f"Preserved existing API key for provider '{provider}'")
+
     cameras_list = []
-    for cam_name, cam in processor.cameras.items():
+    for cam_name, cam_obj in processor.cameras.items():
         if cam_name == name:
-            cameras_list.append({
+            updated_cam = {
                 'name': data.get('name', cam.name),
                 'stream_url': data.get('stream_url', cam.stream_url),
                 'username': data.get('username', cam.username),
@@ -3289,12 +3346,14 @@ def update_camera(name):
                 'ai_enabled_for_ocr': data.get('ai_enabled_for_ocr', cam.ai_enabled_for_ocr),
                 'ai_enabled_for_description': data.get('ai_enabled_for_description', cam.ai_enabled_for_description),
                 # Multi-provider support
-                'ocr_providers': data.get('ocr_providers', getattr(cam, 'ocr_providers', [])),
-                'provider_configs': data.get('provider_configs', getattr(cam, 'provider_configs', {})),
+                'ocr_providers': data.get('ocr_providers', getattr(cam, 'ocr_providers', ['tesseract'])),
+                'provider_configs': new_provider_configs,
                 'use_ml_roi_locator': data.get('use_ml_roi_locator', getattr(cam, 'use_ml_roi_locator', False)),
-            })
+            }
+            logger.info(f"Saving camera '{name}' with ocr_providers: {updated_cam['ocr_providers']}")
+            cameras_list.append(updated_cam)
         else:
-            cameras_list.append(asdict(cam))
+            cameras_list.append(asdict(cam_obj))
 
     if processor.save_config(cameras_list):
         return jsonify({'success': True})

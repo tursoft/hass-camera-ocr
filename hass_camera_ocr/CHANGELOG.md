@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.2.38] - 2026
+
+### Fixed
+- **OCR Settings Save Bug**: Fixed issue where OCR provider configurations were not being saved correctly
+  - Added deep copy of provider arrays/objects in UI to prevent reference issues
+  - Added proper API key masking in server responses with `has_api_key` flag
+  - Server now preserves existing API keys when masked values are sent back
+  - Provider configuration form now shows "configured" indicator when API key exists
+  - Changed toast message to clarify that provider settings need "Save Configuration" to persist
+
+### Improved
+- Added debug logging throughout save/load flow to help diagnose configuration issues
+- API key security: keys in `provider_configs` are now masked in API responses
+- Better UX: shows "Leave empty to keep existing key" hint when editing configured provider
+
+## [1.2.37] - 2026
+
+### Fixed
+- Fixed OCR providers not loading from saved camera config - `ocr_providers`, `provider_configs`, and all AI-related fields now properly loaded when camera is loaded from persistent storage
+- Test All ROIs now correctly uses camera's configured OCR providers
+
 ## [1.2.36] - 2026
 
 ### Added

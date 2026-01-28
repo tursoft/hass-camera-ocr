@@ -4557,13 +4557,23 @@
             ocrConfigCameraName = cameraName;
             document.getElementById('ocr-config-camera-name').textContent = cameraName;
 
-            // Load camera's OCR config
+            // Load camera's OCR config - use deep copies to avoid reference issues
             const camera = cameras[cameraName];
             if (camera) {
-                ocrCurrentProviders = camera.ocr_providers || ['tesseract'];
-                ocrProviderConfigs = camera.provider_configs || {};
+                // Deep copy arrays and objects to prevent modifying original
+                ocrCurrentProviders = Array.isArray(camera.ocr_providers) && camera.ocr_providers.length > 0
+                    ? [...camera.ocr_providers]
+                    : ['tesseract'];
+                ocrProviderConfigs = camera.provider_configs
+                    ? JSON.parse(JSON.stringify(camera.provider_configs))
+                    : {};
                 document.getElementById('ocr-use-ml-roi-locator').checked = camera.use_ml_roi_locator || false;
                 document.getElementById('ocr-enable-description').checked = camera.ai_enabled_for_description || false;
+
+                console.log('OCR Config Modal opened for', cameraName, {
+                    ocr_providers: ocrCurrentProviders,
+                    provider_configs_keys: Object.keys(ocrProviderConfigs)
+                });
             } else {
                 ocrCurrentProviders = ['tesseract'];
                 ocrProviderConfigs = {};
@@ -4588,7 +4598,8 @@
             list.innerHTML = ocrCurrentProviders.map((provider, index) => {
                 const info = PROVIDER_INFO[provider] || { name: provider, needsKey: false };
                 const config = ocrProviderConfigs[provider] || {};
-                const isConfigured = !info.needsKey || config.api_key;
+                // Check if configured: either has_api_key flag, or has an api_key (even if masked), or doesn't need a key
+                const isConfigured = !info.needsKey || config.has_api_key || (config.api_key && config.api_key.length > 0);
                 const statusClass = isConfigured ? 'configured' : 'needs-config';
                 const statusText = isConfigured ? '✓ Ready' : '⚠ Needs config';
 
@@ -4686,12 +4697,16 @@
             const config = ocrProviderConfigs[provider] || {};
             ocrEditingProvider = provider;
 
+            // Check if API key is masked (already configured)
+            const hasExistingKey = config.has_api_key || (config.api_key && config.api_key.includes('•'));
+
             let html = '';
             if (info.needsKey) {
                 html += `
                     <div class="form-group">
-                        <label class="form-label">API Key</label>
-                        <input type="password" id="ocr-provider-api-key" class="form-input" value="${config.api_key || ''}" placeholder="Enter API key">
+                        <label class="form-label">API Key ${hasExistingKey ? '<span style="color: var(--success); font-size: 11px;">(configured)</span>' : ''}</label>
+                        <input type="password" id="ocr-provider-api-key" class="form-input" value="" placeholder="${hasExistingKey ? 'Leave empty to keep existing key' : 'Enter API key'}">
+                        ${hasExistingKey ? '<small style="color: var(--text-3);">A key is already configured. Enter a new key to replace it, or leave empty to keep the existing one.</small>' : ''}
                     </div>
                 `;
             }
@@ -4737,7 +4752,19 @@
             const config = ocrProviderConfigs[ocrEditingProvider] || {};
 
             if (info.needsKey) {
-                config.api_key = document.getElementById('ocr-provider-api-key')?.value || '';
+                const newApiKey = document.getElementById('ocr-provider-api-key')?.value || '';
+                // Only update api_key if user entered a new value (not empty)
+                // If empty, preserve existing key on server side
+                if (newApiKey) {
+                    config.api_key = newApiKey;
+                }
+                // Keep has_api_key flag if it was set and no new key provided
+                // This tells the UI the key is configured even if we don't have the actual value
+                if (!newApiKey && config.has_api_key) {
+                    // Key is already configured on server, UI will show "configured"
+                } else if (newApiKey) {
+                    config.has_api_key = true;
+                }
             }
             if (info.needsUrl) {
                 config.api_url = document.getElementById('ocr-provider-api-url')?.value || '';
@@ -4752,7 +4779,7 @@
             ocrProviderConfigs[ocrEditingProvider] = config;
             renderOCRProviderList();
             closeOCRProviderConfig();
-            toast('Provider settings saved', 'success');
+            toast('Provider settings saved locally - click Save Configuration to persist', 'info');
         }
 
         async function saveOCRConfig() {
@@ -4769,6 +4796,13 @@
                     ai_enabled_for_description: document.getElementById('ocr-enable-description').checked
                 };
 
+                console.log('Saving OCR config for', ocrConfigCameraName, {
+                    ocr_providers: updateData.ocr_providers,
+                    provider_configs_keys: Object.keys(updateData.provider_configs),
+                    use_ml_roi_locator: updateData.use_ml_roi_locator,
+                    ai_enabled_for_description: updateData.ai_enabled_for_description
+                });
+
                 const res = await fetch(`api/cameras/${encodeURIComponent(ocrConfigCameraName)}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -4776,10 +4810,13 @@
                 });
 
                 if (res.ok) {
-                    // Update local cache
+                    const result = await res.json();
+                    console.log('OCR config save response:', result);
+
+                    // Update local cache with deep copies
                     if (cameras[ocrConfigCameraName]) {
-                        cameras[ocrConfigCameraName].ocr_providers = ocrCurrentProviders;
-                        cameras[ocrConfigCameraName].provider_configs = ocrProviderConfigs;
+                        cameras[ocrConfigCameraName].ocr_providers = [...ocrCurrentProviders];
+                        cameras[ocrConfigCameraName].provider_configs = JSON.parse(JSON.stringify(ocrProviderConfigs));
                         cameras[ocrConfigCameraName].use_ml_roi_locator = updateData.use_ml_roi_locator;
                         cameras[ocrConfigCameraName].ai_enabled_for_description = updateData.ai_enabled_for_description;
                     }
@@ -4787,9 +4824,11 @@
                     closeOCRConfigModal();
                 } else {
                     const err = await res.json();
+                    console.error('OCR config save failed:', err);
                     toast(err.error || 'Failed to save configuration', 'error');
                 }
             } catch (e) {
+                console.error('OCR config save exception:', e);
                 toast('Failed to save configuration', 'error');
             }
         }
