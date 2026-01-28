@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Camera OCR Add-on Server with Full Admin Interface and Template Matching."""
 
-VERSION = "1.2.32"
+VERSION = "1.2.33"
 
 import os
 import json
@@ -25,15 +25,23 @@ import pytesseract
 from flask import Flask, jsonify, request, render_template, Response
 from flask_cors import CORS
 
+# Configure logging early so it's available for optional imports
+log_level = os.environ.get('LOG_LEVEL', 'info').upper()
+logging.basicConfig(
+    level=getattr(logging, log_level, logging.INFO),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+logger_ml = logging.getLogger('ml_service')
+
 # ML dependencies (optional - loaded on demand)
 ML_AVAILABLE = False
 try:
     import torch
     from PIL import Image
     ML_AVAILABLE = True
-    logger_ml = logging.getLogger('ml_service')
+    logger_ml.info("ML dependencies (torch, PIL) available")
 except ImportError:
-    logger_ml = logging.getLogger('ml_service')
     logger_ml.warning("ML dependencies not available. Install torch, transformers, Pillow for ML features.")
 
 # EasyOCR dependency (optional)
@@ -55,14 +63,6 @@ try:
     logger.info("PaddleOCR is available")
 except ImportError:
     logger.info("PaddleOCR not available. Install paddleocr for PaddleOCR support.")
-
-# Configure logging
-log_level = os.environ.get('LOG_LEVEL', 'info').upper()
-logging.basicConfig(
-    level=getattr(logging, log_level, logging.INFO),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)

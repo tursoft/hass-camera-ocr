@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.33] - 2026
+
+### Fixed
+- Fixed NameError crash on startup: moved logging configuration before optional OCR imports
+- EasyOCR/PaddleOCR import failures now log correctly instead of crashing
+
 ## [1.2.32] - 2026
 
 ### Fixed
