@@ -1437,6 +1437,15 @@
                                         </div>
                                     </div>
                                 </div>
+                                <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 13px; color: var(--text-2);">ROI Rotation:</span>
+                                    <button class="btn btn-secondary btn-sm" onclick="rotateROI(-90)" title="Rotate 90° Left">↺</button>
+                                    <span id="roi-rotation" style="min-width: 40px; text-align: center; font-weight: 500;">0°</span>
+                                    <button class="btn btn-secondary btn-sm" onclick="rotateROI(90)" title="Rotate 90° Right">↻</button>
+                                    <input type="number" id="roi-rotation-input" value="0" min="-180" max="180" step="1"
+                                           style="width: 60px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-2); color: var(--text-1);"
+                                           onchange="setROIRotation(this.value)" title="Enter custom rotation angle">
+                                </div>
                                 <div style="margin-top: 12px; display: flex; gap: 8px;">
                                     <button class="btn btn-secondary btn-sm" onclick="clearROI()">Clear</button>
                                     <button class="btn btn-primary btn-sm" onclick="testExtraction()">Test Extract</button>
@@ -1799,7 +1808,7 @@
         let cameras = {};
         let values = {};
         let templates = [];
-        let currentROI = { x: 0, y: 0, width: 0, height: 0 };
+        let currentROI = { x: 0, y: 0, width: 0, height: 0, rotation: 0 };
         let isDrawing = false;
         let startX, startY;
         let previewImage = null;
@@ -2927,6 +2936,7 @@
                 roi_y: cameras[editName]?.roi_y || 0,
                 roi_width: cameras[editName]?.roi_width || 0,
                 roi_height: cameras[editName]?.roi_height || 0,
+                roi_rotation: cameras[editName]?.roi_rotation || 0,
             };
 
             try {
@@ -3014,7 +3024,8 @@
                     x: cam.roi_x || 0,
                     y: cam.roi_y || 0,
                     width: cam.roi_width || 0,
-                    height: cam.roi_height || 0
+                    height: cam.roi_height || 0,
+                    rotation: cam.roi_rotation || 0
                 };
                 updateROIDisplay();
             }
@@ -3309,6 +3320,36 @@
                     ctx.fillRect(x - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
                     ctx.fillRect(x + w - handleSize/2, y + h - handleSize/2, handleSize, handleSize);
                 }
+
+                // Draw rotation indicator if rotation is set
+                if (currentROI.rotation && currentROI.rotation !== 0) {
+                    const rotation = currentROI.rotation;
+                    const centerX = x + w / 2;
+                    const centerY = y + h / 2;
+
+                    // Draw rotation arc indicator
+                    ctx.strokeStyle = '#ff9800';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    const startAngle = -Math.PI / 2;
+                    const endAngle = startAngle + (rotation * Math.PI / 180);
+                    const arcRadius = Math.min(w, h) / 4;
+                    ctx.arc(centerX, centerY, arcRadius, startAngle, endAngle, rotation < 0);
+                    ctx.stroke();
+
+                    // Draw arrow at end of arc
+                    const arrowX = centerX + arcRadius * Math.cos(endAngle);
+                    const arrowY = centerY + arcRadius * Math.sin(endAngle);
+                    ctx.fillStyle = '#ff9800';
+                    ctx.beginPath();
+                    ctx.arc(arrowX, arrowY, 4, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Draw rotation label
+                    ctx.font = 'bold 12px sans-serif';
+                    ctx.fillStyle = '#ff9800';
+                    ctx.fillText(rotation + '°', centerX + arcRadius + 8, centerY);
+                }
             }
         }
 
@@ -3317,10 +3358,28 @@
             document.getElementById('roi-y').textContent = currentROI.y;
             document.getElementById('roi-w').textContent = currentROI.width;
             document.getElementById('roi-h').textContent = currentROI.height;
+            document.getElementById('roi-rotation').textContent = (currentROI.rotation || 0) + '°';
+            document.getElementById('roi-rotation-input').value = currentROI.rotation || 0;
+        }
+
+        function rotateROI(delta) {
+            currentROI.rotation = ((currentROI.rotation || 0) + delta + 360) % 360;
+            if (currentROI.rotation > 180) currentROI.rotation -= 360;
+            updateROIDisplay();
+            drawROI();
+        }
+
+        function setROIRotation(value) {
+            currentROI.rotation = parseInt(value) || 0;
+            // Clamp to -180 to 180
+            while (currentROI.rotation > 180) currentROI.rotation -= 360;
+            while (currentROI.rotation < -180) currentROI.rotation += 360;
+            updateROIDisplay();
+            drawROI();
         }
 
         function clearROI() {
-            currentROI = { x: 0, y: 0, width: 0, height: 0 };
+            currentROI = { x: 0, y: 0, width: 0, height: 0, rotation: 0 };
             updateROIDisplay();
             drawROI();
         }
@@ -3481,6 +3540,7 @@
                 roi_y: currentROI.y,
                 roi_width: currentROI.width,
                 roi_height: currentROI.height,
+                roi_rotation: currentROI.rotation || 0,
                 preprocessing: document.getElementById('live-preprocessing').value
             };
 
@@ -3680,7 +3740,8 @@
                             roi_x: roi.x,
                             roi_y: roi.y,
                             roi_width: roi.width,
-                            roi_height: roi.height
+                            roi_height: roi.height,
+                            roi_rotation: roi.rotation || currentROI.rotation || 0
                         })
                     });
                     toast('ROI applied and saved to camera', 'success');

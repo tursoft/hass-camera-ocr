@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Camera OCR Add-on Server with Full Admin Interface and Template Matching."""
 
-VERSION = "1.2.33"
+VERSION = "1.2.34"
 
 import os
 import json
@@ -100,6 +100,7 @@ class CameraConfig:
     roi_y: int = 0
     roi_width: int = 0
     roi_height: int = 0
+    roi_rotation: int = 0  # ROI rotation in degrees (0, 90, 180, 270 or any angle)
     preprocessing: str = "auto"
     template_name: str = ""
     use_template_matching: bool = False
@@ -141,6 +142,7 @@ class ExtractedValue:
     roi_y: int = 0
     roi_width: int = 0
     roi_height: int = 0
+    roi_rotation: int = 0  # ROI rotation in degrees
     error: Optional[str] = None
     video_description: str = ""  # AI-generated scene description
     provider_results: list = field(default_factory=list)  # List of ProviderResult from all providers
@@ -802,6 +804,9 @@ class PTZController:
     # Common profile token names used by different camera manufacturers
     PROFILE_TOKENS = ['Profile_1', 'profile_1', 'MainStream', 'Profile1', '000', '001', 'token']
 
+    # Common ONVIF HTTP ports to try
+    ONVIF_PORTS = [80, 8080, 8000, 8899, 2020, 8081, 8088]
+
     @classmethod
     def move(cls, camera_config: 'CameraConfig', direction: str, speed: float = 0.5, duration: float = 0.3) -> dict:
         """Send PTZ command to camera."""
@@ -815,13 +820,21 @@ class PTZController:
             if not host:
                 return {'error': 'Could not determine camera IP from stream URL'}
 
-            # Try different ONVIF PTZ service URLs
-            ptz_urls = [
-                f"http://{host}/onvif/PTZ",
-                f"http://{host}:80/onvif/PTZ",
-                f"http://{host}/onvif/ptz_service",
-                f"http://{host}:8080/onvif/PTZ",
-            ]
+            # Build comprehensive list of ONVIF PTZ URLs to try
+            # RTSP streams use port 554, but ONVIF is on HTTP ports
+            ptz_urls = []
+            for port in cls.ONVIF_PORTS:
+                # Standard ONVIF PTZ paths
+                ptz_urls.append(f"http://{host}:{port}/onvif/PTZ")
+                ptz_urls.append(f"http://{host}:{port}/onvif/ptz_service")
+                ptz_urls.append(f"http://{host}:{port}/onvif/PTZ_service")
+                # Some cameras use device_service for PTZ
+                ptz_urls.append(f"http://{host}:{port}/onvif/device_service")
+            # Also try without explicit port (uses 80)
+            ptz_urls.append(f"http://{host}/onvif/PTZ")
+            ptz_urls.append(f"http://{host}/onvif/ptz_service")
+
+            logger.debug(f"PTZ: Will try {len(ptz_urls)} URLs for host {host}")
 
             # Determine pan/tilt values based on direction
             pan = 0.0
@@ -2040,6 +2053,7 @@ class CameraProcessor:
                     roi_y=cam_config.get('roi_y', 0),
                     roi_width=cam_config.get('roi_width', 0),
                     roi_height=cam_config.get('roi_height', 0),
+                    roi_rotation=cam_config.get('roi_rotation', 0),
                     preprocessing=cam_config.get('preprocessing', 'auto'),
                     template_name=cam_config.get('template_name', ''),
                     use_template_matching=cam_config.get('use_template_matching', False),
@@ -2302,6 +2316,51 @@ class CameraProcessor:
         except Exception as e:
             logger.exception(f"Error capturing frame: {e}")
             return None, str(e)
+
+    def _rotate_image(self, image: np.ndarray, angle: int) -> np.ndarray:
+        """Rotate image by specified angle.
+
+        Args:
+            image: Input image (BGR or grayscale)
+            angle: Rotation angle in degrees (positive = counter-clockwise)
+
+        Returns:
+            Rotated image
+        """
+        if angle == 0:
+            return image
+
+        # Handle common angles efficiently with cv2.rotate
+        if angle == 90:
+            return cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        elif angle == -90 or angle == 270:
+            return cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+        elif angle == 180 or angle == -180:
+            return cv2.rotate(image, cv2.ROTATE_180)
+        else:
+            # Arbitrary angle rotation
+            h, w = image.shape[:2]
+            center = (w // 2, h // 2)
+
+            # Get rotation matrix
+            rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+
+            # Calculate new bounding box size
+            cos = abs(rotation_matrix[0, 0])
+            sin = abs(rotation_matrix[0, 1])
+            new_w = int(h * sin + w * cos)
+            new_h = int(h * cos + w * sin)
+
+            # Adjust rotation matrix for new center
+            rotation_matrix[0, 2] += (new_w - w) / 2
+            rotation_matrix[1, 2] += (new_h - h) / 2
+
+            # Perform rotation
+            rotated = cv2.warpAffine(image, rotation_matrix, (new_w, new_h),
+                                      flags=cv2.INTER_LINEAR,
+                                      borderMode=cv2.BORDER_CONSTANT,
+                                      borderValue=(255, 255, 255) if len(image.shape) == 3 else 255)
+            return rotated
 
     def preprocess_image(self, image: np.ndarray, method: str) -> np.ndarray:
         """Preprocess image for OCR."""
@@ -2686,6 +2745,12 @@ class CameraProcessor:
                 roi_x, roi_y = 0, 0
                 roi_height, roi_width = frame.shape[:2]
 
+            # Apply ROI rotation if specified
+            roi_rotation = getattr(camera, 'roi_rotation', 0)
+            if roi_rotation != 0:
+                roi_frame = self._rotate_image(roi_frame, roi_rotation)
+                logger.debug(f"Applied ROI rotation: {roi_rotation} degrees")
+
             # Determine which providers to use (in order)
             providers = camera.ocr_providers if camera.ocr_providers else ['tesseract']
 
@@ -2726,6 +2791,7 @@ class CameraProcessor:
                     roi_y=roi_y,
                     roi_width=roi_width,
                     roi_height=roi_height,
+                    roi_rotation=getattr(camera, 'roi_rotation', 0),
                     provider_results=[asdict(r) for r in provider_results],
                     selected_provider=selected_provider
                 )
@@ -2740,6 +2806,7 @@ class CameraProcessor:
                     roi_y=roi_y,
                     roi_width=roi_width,
                     roi_height=roi_height,
+                    roi_rotation=getattr(camera, 'roi_rotation', 0),
                     provider_results=[asdict(r) for r in provider_results],
                     error="No valid result from any provider"
                 )
@@ -2979,7 +3046,8 @@ class CameraProcessor:
             'roi_x': result.roi_x,
             'roi_y': result.roi_y,
             'roi_width': result.roi_width,
-            'roi_height': result.roi_height
+            'roi_height': result.roi_height,
+            'roi_rotation': result.roi_rotation
         })
 
         # Keep only last MAX_HISTORY entries and clean up old images
@@ -3141,6 +3209,7 @@ def add_camera():
         'roi_y': data.get('roi_y', 0),
         'roi_width': data.get('roi_width', 0),
         'roi_height': data.get('roi_height', 0),
+        'roi_rotation': data.get('roi_rotation', 0),
         'preprocessing': data.get('preprocessing', 'auto'),
         'template_name': data.get('template_name', ''),
         'use_template_matching': data.get('use_template_matching', False),
@@ -3187,6 +3256,7 @@ def update_camera(name):
                 'roi_y': data.get('roi_y', cam.roi_y),
                 'roi_width': data.get('roi_width', cam.roi_width),
                 'roi_height': data.get('roi_height', cam.roi_height),
+                'roi_rotation': data.get('roi_rotation', getattr(cam, 'roi_rotation', 0)),
                 'preprocessing': data.get('preprocessing', cam.preprocessing),
                 'template_name': data.get('template_name', cam.template_name),
                 'use_template_matching': data.get('use_template_matching', cam.use_template_matching),

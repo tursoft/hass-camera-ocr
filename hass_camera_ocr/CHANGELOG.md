@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.34] - 2026
+
+### Added
+- **ROI Rotation Support**: Rotate the Region of Interest before OCR extraction
+  - Rotate buttons (90° left/right) in Live Preview
+  - Custom rotation angle input (-180° to 180°)
+  - Visual rotation indicator on ROI overlay
+  - Rotation stored in camera config and history
+- **Improved PTZ for RTSP Cameras**: PTZ now tries multiple ONVIF ports (80, 8080, 8000, 8899, 2020, 8081, 8088) to find the correct endpoint
+
+### Fixed
+- PTZ pan/tilt buttons now work with RTSP stream URLs by probing common ONVIF HTTP ports
+
 ## [1.2.33] - 2026
 
 ### Fixed
