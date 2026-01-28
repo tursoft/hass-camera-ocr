@@ -1,6 +1,9 @@
 ARG BUILD_FROM
 FROM $BUILD_FROM
 
+# Re-declare build args after FROM (they don't persist across FROM)
+ARG BUILD_ARCH
+
 # Install runtime packages
 RUN apk add --no-cache \
     python3 \
@@ -35,14 +38,15 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 RUN pip3 install --no-cache-dir --break-system-packages \
     transformers
 
-# Install EasyOCR (uses PyTorch, already installed)
-RUN pip3 install --no-cache-dir --break-system-packages \
-    easyocr
+# Install EasyOCR (only on amd64/i386 - no pre-built wheels for ARM)
+RUN if [ "$BUILD_ARCH" = "amd64" ] || [ "$BUILD_ARCH" = "i386" ]; then \
+        pip3 install --no-cache-dir --break-system-packages easyocr || true; \
+    fi
 
-# Install PaddleOCR with CPU-only PaddlePaddle
-RUN pip3 install --no-cache-dir --break-system-packages \
-    paddlepaddle \
-    paddleocr
+# Install PaddleOCR (only on amd64 - PaddlePaddle has limited ARM support)
+RUN if [ "$BUILD_ARCH" = "amd64" ]; then \
+        pip3 install --no-cache-dir --break-system-packages paddlepaddle paddleocr || true; \
+    fi
 
 # Copy application files
 COPY rootfs /

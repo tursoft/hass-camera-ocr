@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.32] - 2026
+
+### Fixed
+- Fixed Docker build failure on aarch64/armv7/armhf: EasyOCR and PaddleOCR now only install on amd64/i386 where pre-built wheels are available
+- ARM devices (Raspberry Pi, etc.) will use Tesseract and ML (TrOCR) providers instead
+
 ## [1.2.31] - 2026
 
 ### Added
