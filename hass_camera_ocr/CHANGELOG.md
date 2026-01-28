@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.35] - 2026
+
+### Changed
+- **OCR Config moved to Live Preview**: Removed separate AI Settings tab, added "OCR Config" button in Live Preview
+  - Click OCR Config button to open configuration popup for the selected camera
+  - Configure providers, drag to reorder, set API keys all from Live Preview
+- **Test Extraction now uses camera's OCR providers**: Test Extract button uses all configured providers and shows which one returned the best result
+- Extraction result now shows provider name alongside confidence percentage
+
+### Fixed
+- `extract_from_frame` now properly uses camera's configured OCR providers instead of only Tesseract
+- ROI rotation is now applied during test extraction
+
 ## [1.2.34] - 2026
 
 ### Added

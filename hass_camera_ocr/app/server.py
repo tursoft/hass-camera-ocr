@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Camera OCR Add-on Server with Full Admin Interface and Template Matching."""
 
-VERSION = "1.2.34"
+VERSION = "1.2.35"
 
 import os
 import json
@@ -2822,10 +2822,11 @@ class CameraProcessor:
             )
 
     def extract_from_frame(self, frame: np.ndarray, roi: dict, preprocessing: str = "auto",
-                           template_name: str = None) -> dict:
-        """Extract value from a frame with given ROI or template."""
+                           template_name: str = None, camera: CameraConfig = None) -> dict:
+        """Extract value from a frame with given ROI or template, using camera's OCR providers."""
         try:
             roi_x, roi_y, roi_width, roi_height = roi.get('x', 0), roi.get('y', 0), roi.get('width', 0), roi.get('height', 0)
+            roi_rotation = roi.get('rotation', 0) or (getattr(camera, 'roi_rotation', 0) if camera else 0)
             matched_roi = None
 
             # Use template matching if specified
@@ -2849,49 +2850,66 @@ class CameraProcessor:
             else:
                 roi_frame = frame
 
-            # Preprocess
+            # Apply ROI rotation if specified
+            if roi_rotation != 0:
+                roi_frame = self._rotate_image(roi_frame, roi_rotation)
+
+            # Determine which providers to use
+            if camera and camera.ocr_providers:
+                providers = camera.ocr_providers
+            else:
+                providers = ['tesseract']  # Default to tesseract
+
+            # If camera has legacy AI provider enabled, add it
+            if camera and camera.ai_enabled_for_ocr and camera.ai_provider != 'none':
+                if camera.ai_provider not in providers:
+                    providers.append(camera.ai_provider)
+
+            logger.debug(f"Test extraction using providers: {providers}")
+
+            # Run all providers and collect results
+            provider_results = []
+            for provider in providers:
+                provider_config = camera.provider_configs.get(provider, {}) if camera else {}
+                result = self._run_provider(provider, roi_frame, camera or CameraConfig(name='_test_', stream_url='', preprocessing=preprocessing), provider_config)
+                provider_results.append(result)
+
+            # Select best result
+            best_result, selected_provider = self._select_best_result(provider_results)
+
+            # Encode processed image for preview (use grayscale preprocessed version)
             processed = self.preprocess_image(roi_frame, preprocessing)
-
-            # OCR
-            config = "--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789.-"
-            raw_text = pytesseract.image_to_string(processed, config=config).strip()
-
-            # Get confidence
-            data = pytesseract.image_to_data(processed, config=config, output_type=pytesseract.Output.DICT)
-            confidences = [int(c) for c in data["conf"] if str(c).isdigit() and int(c) > 0]
-            avg_confidence = sum(confidences) / len(confidences) if confidences else 0
-
-            # Parse value
-            value = None
-            for pattern in [r"-?\d+\.\d+", r"-?\d+,\d+", r"-?\d+"]:
-                match = re.search(pattern, raw_text)
-                if match:
-                    try:
-                        value = float(match.group().replace(",", "."))
-                        break
-                    except ValueError:
-                        continue
-
-            # Encode processed image for preview
             _, buffer = cv2.imencode('.png', processed)
             processed_b64 = base64.b64encode(buffer).decode('utf-8')
+
+            if best_result and best_result.value is not None:
+                try:
+                    value = float(best_result.value)
+                except (ValueError, TypeError):
+                    value = None
+            else:
+                value = None
 
             return {
                 'success': True,
                 'value': round(value, 2) if value is not None else None,
-                'raw_text': raw_text,
-                'confidence': avg_confidence,
+                'raw_text': best_result.raw_text if best_result else '',
+                'confidence': best_result.confidence if best_result else 0,
                 'processed_image': processed_b64,
                 'roi': {
                     'x': roi_x,
                     'y': roi_y,
                     'width': roi_width,
-                    'height': roi_height
+                    'height': roi_height,
+                    'rotation': roi_rotation
                 },
-                'matched_roi': matched_roi
+                'matched_roi': matched_roi,
+                'selected_provider': selected_provider,
+                'provider_results': [asdict(r) for r in provider_results]
             }
 
         except Exception as e:
+            logger.error(f"Extract from frame error: {e}")
             return {
                 'success': False,
                 'error': str(e)
@@ -3325,7 +3343,7 @@ def capture_frame_api(camera_name):
 
 @app.route('/api/test-extraction', methods=['POST'])
 def test_extraction():
-    """Test extraction with given ROI."""
+    """Test extraction with given ROI using camera's configured OCR providers."""
     data = request.get_json()
     camera_name = data.get('camera_name')
     roi = data.get('roi', {})
@@ -3340,7 +3358,8 @@ def test_extraction():
     if error:
         return jsonify({'success': False, 'error': error})
 
-    result = processor.extract_from_frame(frame, roi, preprocessing, template_name)
+    # Pass the camera object so extract_from_frame uses its OCR providers
+    result = processor.extract_from_frame(frame, roi, preprocessing, template_name, camera=camera)
 
     # Add cropped ROI preview to result
     if roi.get('width', 0) > 0 and roi.get('height', 0) > 0:

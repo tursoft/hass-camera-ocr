@@ -1220,7 +1220,6 @@
                 <button class="nav-btn" data-page="live">Live Preview</button>
                 <button class="nav-btn" data-page="templates">Templates</button>
                 <button class="nav-btn" data-page="discover">Discover</button>
-                <button class="nav-btn" data-page="ai-settings">AI Settings</button>
             </nav>
         </header>
 
@@ -1446,9 +1445,16 @@
                                            style="width: 60px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-2); color: var(--text-1);"
                                            onchange="setROIRotation(this.value)" title="Enter custom rotation angle">
                                 </div>
-                                <div style="margin-top: 12px; display: flex; gap: 8px;">
+                                <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
                                     <button class="btn btn-secondary btn-sm" onclick="clearROI()">Clear</button>
                                     <button class="btn btn-primary btn-sm" onclick="testExtraction()">Test Extract</button>
+                                    <button class="btn btn-secondary btn-sm" onclick="openOCRConfigModal()" title="Configure OCR Providers">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                            <circle cx="12" cy="12" r="3"></circle>
+                                            <path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"></path>
+                                        </svg>
+                                        OCR Config
+                                    </button>
                                 </div>
                             </div>
 
@@ -1801,6 +1807,69 @@
         </div>
     </div>
 
+    <!-- OCR Config Modal -->
+    <div class="modal" id="ocr-config-modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h3 class="modal-title">OCR Configuration - <span id="ocr-config-camera-name"></span></h3>
+                <button class="modal-close" onclick="closeOCRConfigModal()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 13px; color: var(--text-3); margin-bottom: 16px;">
+                    Configure OCR providers for this camera. Providers run in order, best result is selected.
+                </p>
+
+                <!-- Provider List -->
+                <div class="form-group">
+                    <label class="form-label">OCR Providers (drag to reorder)</label>
+                    <div id="ocr-provider-list" class="provider-list"></div>
+                    <button type="button" class="add-provider-btn" onclick="showAddProviderDialogModal()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                        Add Provider
+                    </button>
+                </div>
+
+                <!-- Provider Config Panel -->
+                <div id="ocr-provider-config-panel" class="provider-config-panel" style="display: none;">
+                    <div class="panel-title">
+                        <span id="ocr-config-panel-title">Configure Provider</span>
+                        <button class="btn btn-sm" onclick="closeOCRProviderConfig()">×</button>
+                    </div>
+                    <div id="ocr-provider-config-fields"></div>
+                    <button class="btn btn-primary btn-sm" onclick="saveOCRProviderConfig()" style="margin-top: 12px;">Save Provider Settings</button>
+                </div>
+
+                <!-- ML ROI Locator Option -->
+                <div class="form-group" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="ocr-use-ml-roi-locator">
+                        <span>Use ML to auto-locate ROI</span>
+                    </label>
+                </div>
+
+                <!-- Scene Description Option -->
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="ocr-enable-description">
+                        <span>Generate scene descriptions (requires AI vision provider)</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeOCRConfigModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveOCRConfig()">Save Configuration</button>
+            </div>
+        </div>
+    </div>
+
     <div class="toast-container" id="toast-container"></div>
 
     <script>
@@ -1975,7 +2044,6 @@
 
             if (page === 'live') populateCameraSelect();
             if (page === 'templates') loadTemplates();
-            if (page === 'ai-settings') loadAIConfig();
         }
 
         // Data Loading
@@ -3449,8 +3517,11 @@
                         data.value !== null ? data.value : '--';
                     document.getElementById('result-raw').textContent =
                         `Raw: "${data.raw_text || ''}"`;
+
+                    // Show provider and confidence
+                    const providerName = PROVIDER_INFO[data.selected_provider]?.name || data.selected_provider || 'Tesseract OCR';
                     document.getElementById('result-confidence').textContent =
-                        `Confidence: ${(data.confidence || 0).toFixed(1)}%`;
+                        `${providerName} • ${(data.confidence || 0).toFixed(1)}%`;
 
                     document.getElementById('result-value').style.color =
                         data.confidence > 50 ? 'var(--success)' :
@@ -4448,6 +4519,259 @@
         let editingProvider = null;
         let mlStatus = { available: false };
 
+        // OCR Config Modal Functions
+        let ocrConfigCameraName = '';
+        let ocrCurrentProviders = [];
+        let ocrProviderConfigs = {};
+        let ocrEditingProvider = null;
+
+        function openOCRConfigModal() {
+            const cameraName = document.getElementById('live-camera-select').value;
+            if (!cameraName) {
+                toast('Please select a camera first', 'error');
+                return;
+            }
+
+            ocrConfigCameraName = cameraName;
+            document.getElementById('ocr-config-camera-name').textContent = cameraName;
+
+            // Load camera's OCR config
+            const camera = cameras[cameraName];
+            if (camera) {
+                ocrCurrentProviders = camera.ocr_providers || ['tesseract'];
+                ocrProviderConfigs = camera.provider_configs || {};
+                document.getElementById('ocr-use-ml-roi-locator').checked = camera.use_ml_roi_locator || false;
+                document.getElementById('ocr-enable-description').checked = camera.ai_enabled_for_description || false;
+            } else {
+                ocrCurrentProviders = ['tesseract'];
+                ocrProviderConfigs = {};
+            }
+
+            renderOCRProviderList();
+            document.getElementById('ocr-config-modal').classList.add('active');
+        }
+
+        function closeOCRConfigModal() {
+            document.getElementById('ocr-config-modal').classList.remove('active');
+            document.getElementById('ocr-provider-config-panel').style.display = 'none';
+        }
+
+        function renderOCRProviderList() {
+            const list = document.getElementById('ocr-provider-list');
+            if (ocrCurrentProviders.length === 0) {
+                list.innerHTML = '<p style="color: var(--text-3); font-size: 13px;">No providers configured. Add at least one.</p>';
+                return;
+            }
+
+            list.innerHTML = ocrCurrentProviders.map((provider, index) => {
+                const info = PROVIDER_INFO[provider] || { name: provider, needsKey: false };
+                const config = ocrProviderConfigs[provider] || {};
+                const isConfigured = !info.needsKey || config.api_key;
+                const statusClass = isConfigured ? 'configured' : 'needs-config';
+                const statusText = isConfigured ? '✓ Ready' : '⚠ Needs config';
+
+                return `
+                    <div class="provider-item" draggable="true" data-provider="${provider}" data-index="${index}">
+                        <span class="drag-handle">☰</span>
+                        <span class="provider-name">${info.name}</span>
+                        <span class="provider-status ${statusClass}">${statusText}</span>
+                        <div class="provider-actions">
+                            ${info.needsKey || info.needsUrl ? `<button class="provider-btn" onclick="configureOCRProvider('${provider}')">Configure</button>` : ''}
+                            <button class="provider-btn remove" onclick="removeOCRProvider(${index})">×</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            setupOCRProviderDragDrop();
+        }
+
+        function setupOCRProviderDragDrop() {
+            const items = document.querySelectorAll('#ocr-provider-list .provider-item');
+            items.forEach(item => {
+                item.addEventListener('dragstart', e => {
+                    e.dataTransfer.setData('text/plain', item.dataset.index);
+                    item.classList.add('dragging');
+                });
+                item.addEventListener('dragend', () => item.classList.remove('dragging'));
+                item.addEventListener('dragover', e => e.preventDefault());
+                item.addEventListener('drop', e => {
+                    e.preventDefault();
+                    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+                    const toIndex = parseInt(item.dataset.index);
+                    if (fromIndex !== toIndex) {
+                        const [moved] = ocrCurrentProviders.splice(fromIndex, 1);
+                        ocrCurrentProviders.splice(toIndex, 0, moved);
+                        renderOCRProviderList();
+                    }
+                });
+            });
+        }
+
+        function showAddProviderDialogModal() {
+            const availableProviders = Object.entries(PROVIDER_INFO)
+                .filter(([key]) => !ocrCurrentProviders.includes(key))
+                .map(([key, info]) => `<option value="${key}">${info.name}${info.local ? ' (Local)' : ''}</option>`)
+                .join('');
+
+            if (!availableProviders) {
+                toast('All providers already added', 'info');
+                return;
+            }
+
+            const html = `
+                <div class="form-group">
+                    <label class="form-label">Select Provider</label>
+                    <select id="ocr-new-provider-select" class="form-input">
+                        <option value="">-- Select --</option>
+                        ${availableProviders}
+                    </select>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="addOCRSelectedProvider()">Add Provider</button>
+            `;
+
+            document.getElementById('ocr-config-panel-title').textContent = 'Add Provider';
+            document.getElementById('ocr-provider-config-fields').innerHTML = html;
+            document.getElementById('ocr-provider-config-panel').style.display = 'block';
+            ocrEditingProvider = null;
+        }
+
+        function addOCRSelectedProvider() {
+            const provider = document.getElementById('ocr-new-provider-select').value;
+            if (!provider) {
+                toast('Please select a provider', 'error');
+                return;
+            }
+
+            ocrCurrentProviders.push(provider);
+            ocrProviderConfigs[provider] = ocrProviderConfigs[provider] || {};
+            renderOCRProviderList();
+            closeOCRProviderConfig();
+
+            const info = PROVIDER_INFO[provider];
+            if (info && (info.needsKey || info.needsUrl)) {
+                configureOCRProvider(provider);
+            }
+        }
+
+        function removeOCRProvider(index) {
+            ocrCurrentProviders.splice(index, 1);
+            renderOCRProviderList();
+        }
+
+        function configureOCRProvider(provider) {
+            const info = PROVIDER_INFO[provider] || {};
+            const config = ocrProviderConfigs[provider] || {};
+            ocrEditingProvider = provider;
+
+            let html = '';
+            if (info.needsKey) {
+                html += `
+                    <div class="form-group">
+                        <label class="form-label">API Key</label>
+                        <input type="password" id="ocr-provider-api-key" class="form-input" value="${config.api_key || ''}" placeholder="Enter API key">
+                    </div>
+                `;
+            }
+            if (info.needsUrl) {
+                html += `
+                    <div class="form-group">
+                        <label class="form-label">API URL / Endpoint</label>
+                        <input type="text" id="ocr-provider-api-url" class="form-input" value="${config.api_url || ''}" placeholder="e.g., http://localhost:11434">
+                    </div>
+                `;
+            }
+            if (info.needsRegion) {
+                html += `
+                    <div class="form-group">
+                        <label class="form-label">Region</label>
+                        <input type="text" id="ocr-provider-region" class="form-input" value="${config.region || ''}" placeholder="e.g., us-east-1">
+                    </div>
+                `;
+            }
+            if (!info.local) {
+                html += `
+                    <div class="form-group">
+                        <label class="form-label">Model (optional)</label>
+                        <input type="text" id="ocr-provider-model" class="form-input" value="${config.model || ''}" placeholder="Leave empty for default">
+                    </div>
+                `;
+            }
+
+            document.getElementById('ocr-config-panel-title').textContent = `Configure ${info.name || provider}`;
+            document.getElementById('ocr-provider-config-fields').innerHTML = html;
+            document.getElementById('ocr-provider-config-panel').style.display = 'block';
+        }
+
+        function closeOCRProviderConfig() {
+            document.getElementById('ocr-provider-config-panel').style.display = 'none';
+            ocrEditingProvider = null;
+        }
+
+        function saveOCRProviderConfig() {
+            if (!ocrEditingProvider) return;
+
+            const info = PROVIDER_INFO[ocrEditingProvider] || {};
+            const config = ocrProviderConfigs[ocrEditingProvider] || {};
+
+            if (info.needsKey) {
+                config.api_key = document.getElementById('ocr-provider-api-key')?.value || '';
+            }
+            if (info.needsUrl) {
+                config.api_url = document.getElementById('ocr-provider-api-url')?.value || '';
+            }
+            if (info.needsRegion) {
+                config.region = document.getElementById('ocr-provider-region')?.value || '';
+            }
+            if (!info.local) {
+                config.model = document.getElementById('ocr-provider-model')?.value || '';
+            }
+
+            ocrProviderConfigs[ocrEditingProvider] = config;
+            renderOCRProviderList();
+            closeOCRProviderConfig();
+            toast('Provider settings saved', 'success');
+        }
+
+        async function saveOCRConfig() {
+            if (!ocrConfigCameraName) {
+                toast('No camera selected', 'error');
+                return;
+            }
+
+            try {
+                const updateData = {
+                    ocr_providers: ocrCurrentProviders,
+                    provider_configs: ocrProviderConfigs,
+                    use_ml_roi_locator: document.getElementById('ocr-use-ml-roi-locator').checked,
+                    ai_enabled_for_description: document.getElementById('ocr-enable-description').checked
+                };
+
+                const res = await fetch(`api/cameras/${encodeURIComponent(ocrConfigCameraName)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updateData)
+                });
+
+                if (res.ok) {
+                    // Update local cache
+                    if (cameras[ocrConfigCameraName]) {
+                        cameras[ocrConfigCameraName].ocr_providers = ocrCurrentProviders;
+                        cameras[ocrConfigCameraName].provider_configs = ocrProviderConfigs;
+                        cameras[ocrConfigCameraName].use_ml_roi_locator = updateData.use_ml_roi_locator;
+                        cameras[ocrConfigCameraName].ai_enabled_for_description = updateData.ai_enabled_for_description;
+                    }
+                    toast('OCR configuration saved', 'success');
+                    closeOCRConfigModal();
+                } else {
+                    const err = await res.json();
+                    toast(err.error || 'Failed to save configuration', 'error');
+                }
+            } catch (e) {
+                toast('Failed to save configuration', 'error');
+            }
+        }
+
         async function loadAIConfig() {
             // Load ML status
             try {
@@ -4932,8 +5256,6 @@
             toast('Test completed', 'success');
         }
 
-        // Load AI config when visiting AI settings page
-        document.querySelector('[data-page="ai-settings"]').addEventListener('click', loadAIConfig);
     </script>
 </body>
 </html>
