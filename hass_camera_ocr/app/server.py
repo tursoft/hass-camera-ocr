@@ -2569,8 +2569,8 @@ class CameraProcessor:
                     # Preprocess image for better OCR
                     processed = self.preprocess_image(roi_frame, camera.preprocessing or 'auto')
 
-                    # Run EasyOCR
-                    results = easyocr_reader.readtext(processed)
+                    # Run EasyOCR with allowlist for numbers only
+                    results = easyocr_reader.readtext(processed, allowlist='0123456789.-')
 
                     if results:
                         # Combine all detected text
@@ -2579,9 +2579,9 @@ class CameraProcessor:
                         raw_text = ' '.join(raw_texts)
                         avg_confidence = sum(confidences) / len(confidences) * 100
 
-                        # Extract numeric value
+                        # Extract numeric value - always positive
                         numbers = re.findall(r'[-+]?\d*\.?\d+', raw_text)
-                        value = numbers[0] if numbers else None
+                        value = str(abs(float(numbers[0]))) if numbers else None
 
                         return ProviderResult(
                             provider='easyocr',
@@ -2626,16 +2626,20 @@ class CameraProcessor:
                             if line and len(line) >= 2:
                                 text_info = line[1]
                                 if isinstance(text_info, tuple) and len(text_info) >= 2:
-                                    raw_texts.append(text_info[0])
-                                    confidences.append(text_info[1])
+                                    text = text_info[0]
+                                    # Filter to keep only numeric characters
+                                    numeric_text = re.sub(r'[^0-9.\-]', '', text)
+                                    if numeric_text:
+                                        raw_texts.append(numeric_text)
+                                        confidences.append(text_info[1])
 
                         if raw_texts:
                             raw_text = ' '.join(raw_texts)
                             avg_confidence = sum(confidences) / len(confidences) * 100
 
-                            # Extract numeric value
+                            # Extract numeric value - always positive
                             numbers = re.findall(r'[-+]?\d*\.?\d+', raw_text)
-                            value = numbers[0] if numbers else None
+                            value = str(abs(float(numbers[0]))) if numbers else None
 
                             return ProviderResult(
                                 provider='paddleocr',
@@ -2670,9 +2674,9 @@ class CameraProcessor:
                     result = AIService._call_aws_textract(image_base64, api_key, config.get('secret_key', ''), region)
 
                 if result and result != 'none':
-                    # Extract numeric value
+                    # Extract numeric value - always positive
                     numbers = re.findall(r'[-+]?\d*\.?\d+', result)
-                    value = numbers[0] if numbers else result
+                    value = str(abs(float(numbers[0]))) if numbers else None
                     return ProviderResult(provider=provider, value=value, raw_text=result, confidence=85.0)
                 else:
                     return ProviderResult(provider=provider, value=None, raw_text='', confidence=0, error='No text extracted')
@@ -2687,11 +2691,12 @@ class CameraProcessor:
                 api_url = config.get('api_url', camera.ai_api_url)
                 model = config.get('model', camera.ai_model)
 
-                result = AIService.enhance_ocr(image_base64, "extract numeric value", camera)
+                result = AIService.enhance_ocr(image_base64, "extract numeric value only, respond with just the number", camera)
 
                 if result and result != 'none':
+                    # Extract numeric value - always positive
                     numbers = re.findall(r'[-+]?\d*\.?\d+', result)
-                    value = numbers[0] if numbers else result
+                    value = str(abs(float(numbers[0]))) if numbers else None
                     return ProviderResult(provider=provider, value=value, raw_text=result, confidence=90.0)
                 else:
                     return ProviderResult(provider=provider, value=None, raw_text='', confidence=0, error='No value extracted')

@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.44] - 2026
+
+### Changed
+- **OCR providers configured for numbers only**:
+  - Tesseract: Uses character whitelist `0123456789.-`
+  - EasyOCR: Uses `allowlist='0123456789.-'` parameter
+  - PaddleOCR: Filters output to keep only numeric characters
+  - Cloud providers: Results filtered for numbers only
+  - AI providers: Prompt updated to "extract numeric value only"
+- All providers now consistently return positive values
+
 ## [1.2.43] - 2026
 
 ### Changed
