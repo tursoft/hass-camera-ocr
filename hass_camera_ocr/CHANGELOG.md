@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.40] - 2026
+
+### Added
+- **Test All ROIs - Provider Results Display**: Each ROI card now shows results from all OCR providers after Test All completes
+  - Expandable provider results section below each ROI card
+  - Shows provider name, extracted value, and confidence percentage
+  - Best provider highlighted with ★ indicator
+  - Click "▼ X providers" to expand/collapse results
+  - Results auto-expand after testing
+
 ## [1.2.39] - 2026
 
 ### Added

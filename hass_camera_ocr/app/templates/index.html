@@ -507,6 +507,70 @@
             }
         }
 
+        .saved-roi-providers {
+            padding: 4px 6px;
+            background: var(--card);
+            border-top: 1px solid var(--border);
+            font-size: 10px;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .saved-roi-item.show-providers .saved-roi-providers {
+            max-height: 200px;
+        }
+
+        .saved-roi-provider-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 2px 0;
+            border-bottom: 1px dotted var(--border);
+        }
+
+        .saved-roi-provider-row:last-child {
+            border-bottom: none;
+        }
+
+        .saved-roi-provider-row.best {
+            background: var(--primary-alpha);
+            margin: 0 -6px;
+            padding: 2px 6px;
+        }
+
+        .saved-roi-provider-name {
+            color: var(--text-2);
+            font-weight: 500;
+        }
+
+        .saved-roi-provider-value {
+            font-weight: 600;
+        }
+
+        .saved-roi-provider-conf {
+            color: var(--text-3);
+            font-size: 9px;
+        }
+
+        .saved-roi-toggle-providers {
+            display: block;
+            width: 100%;
+            padding: 3px;
+            border: none;
+            background: var(--bg);
+            color: var(--text-3);
+            font-size: 9px;
+            cursor: pointer;
+            text-align: center;
+            border-top: 1px solid var(--border);
+        }
+
+        .saved-roi-toggle-providers:hover {
+            background: var(--primary-alpha);
+            color: var(--text-1);
+        }
+
         .validated-badge {
             position: absolute;
             top: 4px;
@@ -4070,25 +4134,77 @@
                             roiEl.classList.remove('processing');
                         }
 
-                        if (extractedSpan) {
-                            if (data.success) {
+                        if (data.success) {
+                            if (extractedSpan) {
                                 extractedSpan.textContent = data.value !== null ? data.value : '--';
                                 extractedSpan.style.color = data.confidence > 50 ? 'var(--success)' : data.confidence > 30 ? 'var(--warning)' : 'var(--error)';
+                            }
 
-                                // Update border based on result quality
-                                if (roiEl) {
-                                    roiEl.style.borderColor = data.confidence > 50 ? 'var(--success)' : data.confidence > 30 ? 'var(--warning)' : 'var(--error)';
-                                }
+                            // Update border based on result quality
+                            if (roiEl) {
+                                roiEl.style.borderColor = data.confidence > 50 ? 'var(--success)' : data.confidence > 30 ? 'var(--warning)' : 'var(--error)';
+                            }
 
-                                if (data.confidence > bestConfidence && data.value !== null) {
-                                    bestConfidence = data.confidence;
-                                    bestResult = { value: data.value, roi: roi.roi, id: roi.id };
-                                }
-                            } else {
+                            if (data.confidence > bestConfidence && data.value !== null) {
+                                bestConfidence = data.confidence;
+                                bestResult = { value: data.value, roi: roi.roi, id: roi.id };
+                            }
+
+                            // Store and display all provider results
+                            if (data.provider_results && data.provider_results.length > 0 && roiEl) {
+                                // Remove existing providers section if any
+                                const existingProviders = roiEl.querySelector('.saved-roi-providers');
+                                if (existingProviders) existingProviders.remove();
+                                const existingToggle = roiEl.querySelector('.saved-roi-toggle-providers');
+                                if (existingToggle) existingToggle.remove();
+
+                                // Build provider results HTML
+                                let providersHtml = '<div class="saved-roi-providers">';
+                                data.provider_results.forEach(pr => {
+                                    const pInfo = PROVIDER_INFO[pr.provider] || { name: pr.provider };
+                                    const isBest = pr.provider === data.selected_provider;
+                                    const confColor = pr.confidence > 50 ? 'var(--success)' : pr.confidence > 30 ? 'var(--warning)' : 'var(--error)';
+                                    providersHtml += `
+                                        <div class="saved-roi-provider-row ${isBest ? 'best' : ''}">
+                                            <span class="saved-roi-provider-name">${pInfo.name}${isBest ? ' ★' : ''}</span>
+                                            <span>
+                                                <span class="saved-roi-provider-value" style="color: ${pr.error ? 'var(--error)' : 'var(--text-1)'}">
+                                                    ${pr.error ? 'Err' : (pr.value !== null ? pr.value : '--')}
+                                                </span>
+                                                <span class="saved-roi-provider-conf" style="color: ${confColor}">
+                                                    ${pr.confidence ? pr.confidence.toFixed(0) + '%' : ''}
+                                                </span>
+                                            </span>
+                                        </div>
+                                    `;
+                                });
+                                providersHtml += '</div>';
+
+                                // Add toggle button and providers section
+                                const toggleBtn = document.createElement('button');
+                                toggleBtn.className = 'saved-roi-toggle-providers';
+                                toggleBtn.textContent = `▼ ${data.provider_results.length} providers`;
+                                toggleBtn.onclick = (e) => {
+                                    e.stopPropagation();
+                                    roiEl.classList.toggle('show-providers');
+                                    toggleBtn.textContent = roiEl.classList.contains('show-providers')
+                                        ? `▲ Hide providers`
+                                        : `▼ ${data.provider_results.length} providers`;
+                                };
+
+                                roiEl.insertAdjacentHTML('beforeend', providersHtml);
+                                roiEl.insertAdjacentElement('beforeend', toggleBtn);
+
+                                // Auto-expand to show results
+                                roiEl.classList.add('show-providers');
+                                toggleBtn.textContent = `▲ Hide providers`;
+                            }
+                        } else {
+                            if (extractedSpan) {
                                 extractedSpan.textContent = 'Error';
                                 extractedSpan.style.color = 'var(--error)';
-                                if (roiEl) roiEl.style.borderColor = 'var(--error)';
                             }
+                            if (roiEl) roiEl.style.borderColor = 'var(--error)';
                         }
                     } catch (e) {
                         if (roiEl) {
