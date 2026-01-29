@@ -2020,6 +2020,12 @@
             const frame = document.getElementById('preview-frame');
             frame.addEventListener('wheel', (e) => {
                 if (!previewImage) return;
+
+                // Don't zoom when scrolling on buttons or controls
+                if (e.target.closest('button, .btn, input, select, .zoom-controls, .ptz-controls')) {
+                    return;
+                }
+
                 e.preventDefault();
                 if (e.deltaY < 0) {
                     zoomIn();

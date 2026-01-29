@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.42] - 2026
+
+### Fixed
+- **Scroll on buttons no longer changes zoom**: Mouse wheel over buttons, inputs, and controls now behaves normally instead of zooming the preview
+
 ## [1.2.41] - 2026
 
 ### Fixed
