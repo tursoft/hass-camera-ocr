@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.41] - 2026
+
+### Fixed
+- **Test Extract Button Not Working**: Fixed JavaScript error where `currentImage` variable was undefined - now correctly uses `previewImage` and the preview img element
+
 ## [1.2.40] - 2026
 
 ### Added

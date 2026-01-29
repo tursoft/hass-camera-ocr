@@ -3655,30 +3655,37 @@
             const allProvidersEl = document.getElementById('all-providers-results');
 
             // IMMEDIATELY show captured ROI from current canvas
-            if (currentROI.width > 0 && currentROI.height > 0 && currentImage) {
-                // Create a temporary canvas to extract the ROI
-                const tempCanvas = document.createElement('canvas');
-                const tempCtx = tempCanvas.getContext('2d');
+            const previewImg = document.getElementById('preview-image');
+            if (currentROI.width > 0 && currentROI.height > 0 && previewImage && previewImg && previewImg.complete) {
+                try {
+                    // Create a temporary canvas to extract the ROI
+                    const tempCanvas = document.createElement('canvas');
+                    const tempCtx = tempCanvas.getContext('2d');
 
-                // Get ROI coordinates (already in original image coordinates)
-                const x = Math.round(currentROI.x);
-                const y = Math.round(currentROI.y);
-                const w = Math.round(currentROI.width);
-                const h = Math.round(currentROI.height);
+                    // Get ROI coordinates (already in original image coordinates)
+                    const x = Math.round(currentROI.x);
+                    const y = Math.round(currentROI.y);
+                    const w = Math.round(currentROI.width);
+                    const h = Math.round(currentROI.height);
 
-                // Ensure coordinates are within bounds
-                const safeX = Math.max(0, Math.min(x, currentImage.width - 1));
-                const safeY = Math.max(0, Math.min(y, currentImage.height - 1));
-                const safeW = Math.min(w, currentImage.width - safeX);
-                const safeH = Math.min(h, currentImage.height - safeY);
+                    // Ensure coordinates are within bounds
+                    const safeX = Math.max(0, Math.min(x, previewImage.width - 1));
+                    const safeY = Math.max(0, Math.min(y, previewImage.height - 1));
+                    const safeW = Math.min(w, previewImage.width - safeX);
+                    const safeH = Math.min(h, previewImage.height - safeY);
 
-                tempCanvas.width = safeW;
-                tempCanvas.height = safeH;
-                tempCtx.drawImage(currentImage, safeX, safeY, safeW, safeH, 0, 0, safeW, safeH);
+                    if (safeW > 0 && safeH > 0) {
+                        tempCanvas.width = safeW;
+                        tempCanvas.height = safeH;
+                        tempCtx.drawImage(previewImg, safeX, safeY, safeW, safeH, 0, 0, safeW, safeH);
 
-                // Show immediate preview
-                resultPreview.innerHTML = `<img src="${tempCanvas.toDataURL('image/png')}" style="width: 100%; display: block;">`;
-                resultPreview.style.display = 'block';
+                        // Show immediate preview
+                        resultPreview.innerHTML = `<img src="${tempCanvas.toDataURL('image/png')}" style="width: 100%; display: block;">`;
+                        resultPreview.style.display = 'block';
+                    }
+                } catch (e) {
+                    console.log('Could not show immediate preview:', e);
+                }
             }
 
             resultValue.textContent = '...';
