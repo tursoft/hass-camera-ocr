@@ -494,6 +494,19 @@
             border-color: var(--success);
         }
 
+        .saved-roi-item.processing {
+            animation: pulse-border 1s ease-in-out infinite;
+        }
+
+        @keyframes pulse-border {
+            0%, 100% {
+                box-shadow: 0 0 4px var(--primary-alpha);
+            }
+            50% {
+                box-shadow: 0 0 12px var(--primary);
+            }
+        }
+
         .validated-badge {
             position: absolute;
             top: 4px;
@@ -1474,6 +1487,7 @@
                                     <div class="result-value" id="result-value">--</div>
                                     <div class="result-raw" id="result-raw">Draw ROI and click Test Extract</div>
                                     <div class="result-confidence" id="result-confidence"></div>
+                                    <div id="all-providers-results" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);"></div>
                                 </div>
                             </div>
 
@@ -3161,16 +3175,47 @@
 
             const roi = currentROI;
             const hs = HANDLE_SIZE / zoomLevel; // Adjust handle size for zoom
+            const rotation = roi.rotation || 0;
+            const rotationRad = rotation * Math.PI / 180;
 
-            // Check corner handles first
-            if (Math.abs(pos.x - roi.x) < hs && Math.abs(pos.y - roi.y) < hs) return 'resize-tl';
-            if (Math.abs(pos.x - (roi.x + roi.width)) < hs && Math.abs(pos.y - roi.y) < hs) return 'resize-tr';
-            if (Math.abs(pos.x - roi.x) < hs && Math.abs(pos.y - (roi.y + roi.height)) < hs) return 'resize-bl';
-            if (Math.abs(pos.x - (roi.x + roi.width)) < hs && Math.abs(pos.y - (roi.y + roi.height)) < hs) return 'resize-br';
+            // Calculate ROI center
+            const centerX = roi.x + roi.width / 2;
+            const centerY = roi.y + roi.height / 2;
 
-            // Check if inside ROI (for moving)
-            if (pos.x >= roi.x && pos.x <= roi.x + roi.width &&
-                pos.y >= roi.y && pos.y <= roi.y + roi.height) {
+            // Helper to rotate a point around center
+            function rotatePoint(px, py) {
+                const cos = Math.cos(-rotationRad);
+                const sin = Math.sin(-rotationRad);
+                const dx = px - centerX;
+                const dy = py - centerY;
+                return {
+                    x: cos * dx - sin * dy + centerX,
+                    y: sin * dx + cos * dy + centerY
+                };
+            }
+
+            // Rotate mouse position to unrotated coordinates
+            const unrotatedPos = rotatePoint(pos.x, pos.y);
+
+            // Check rotation handle (positioned above the ROI)
+            const rotateHandleDistance = 30 / zoomLevel;
+            const rotateHandleX = centerX;
+            const rotateHandleY = roi.y - rotateHandleDistance;
+            const rotatedHandle = {
+                x: Math.cos(rotationRad) * (rotateHandleX - centerX) - Math.sin(rotationRad) * (rotateHandleY - centerY) + centerX,
+                y: Math.sin(rotationRad) * (rotateHandleX - centerX) + Math.cos(rotationRad) * (rotateHandleY - centerY) + centerY
+            };
+            if (Math.abs(pos.x - rotatedHandle.x) < hs * 1.5 && Math.abs(pos.y - rotatedHandle.y) < hs * 1.5) return 'rotate';
+
+            // Check corner handles (in unrotated space)
+            if (Math.abs(unrotatedPos.x - roi.x) < hs && Math.abs(unrotatedPos.y - roi.y) < hs) return 'resize-tl';
+            if (Math.abs(unrotatedPos.x - (roi.x + roi.width)) < hs && Math.abs(unrotatedPos.y - roi.y) < hs) return 'resize-tr';
+            if (Math.abs(unrotatedPos.x - roi.x) < hs && Math.abs(unrotatedPos.y - (roi.y + roi.height)) < hs) return 'resize-bl';
+            if (Math.abs(unrotatedPos.x - (roi.x + roi.width)) < hs && Math.abs(unrotatedPos.y - (roi.y + roi.height)) < hs) return 'resize-br';
+
+            // Check if inside ROI (for moving) - in unrotated space
+            if (unrotatedPos.x >= roi.x && unrotatedPos.x <= roi.x + roi.width &&
+                unrotatedPos.y >= roi.y && unrotatedPos.y <= roi.y + roi.height) {
                 return 'move';
             }
 
@@ -3195,6 +3240,9 @@
                     break;
                 case 'move':
                     canvas.style.cursor = 'move';
+                    break;
+                case 'rotate':
+                    canvas.style.cursor = 'grab';
                     break;
                 default:
                     canvas.style.cursor = 'crosshair';
@@ -3274,6 +3322,25 @@
                             width: Math.max(10, Math.round(dragStartROI.width + dx)),
                             height: Math.max(10, Math.round(dragStartROI.height + dy))
                         };
+                        break;
+
+                    case 'rotate':
+                        // Calculate rotation based on mouse position relative to ROI center
+                        const centerX = dragStartROI.x + dragStartROI.width / 2;
+                        const centerY = dragStartROI.y + dragStartROI.height / 2;
+                        const angleRad = Math.atan2(pos.y - centerY, pos.x - centerX);
+                        // Convert to degrees and offset by -90 (since handle is above)
+                        let angleDeg = angleRad * 180 / Math.PI + 90;
+                        // Snap to 15 degree increments when near
+                        const snapThreshold = 5;
+                        const snappedAngle = Math.round(angleDeg / 15) * 15;
+                        if (Math.abs(angleDeg - snappedAngle) < snapThreshold) {
+                            angleDeg = snappedAngle;
+                        }
+                        // Normalize to -180 to 180
+                        while (angleDeg > 180) angleDeg -= 360;
+                        while (angleDeg < -180) angleDeg += 360;
+                        currentROI.rotation = Math.round(angleDeg);
                         break;
 
                     case 'draw':
@@ -3405,7 +3472,40 @@
                     ctx.fillRect(-w/2 - handleSize/2, h/2 - handleSize/2, handleSize, handleSize);
                     ctx.fillRect(w/2 - handleSize/2, h/2 - handleSize/2, handleSize, handleSize);
 
+                    // Draw rotation handle (positioned above the ROI)
+                    const rotateHandleDistance = 30;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -h/2);
+                    ctx.lineTo(0, -h/2 - rotateHandleDistance + 6);
+                    ctx.strokeStyle = '#03a9f4';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    // Draw circular rotation handle
+                    ctx.beginPath();
+                    ctx.arc(0, -h/2 - rotateHandleDistance, 6, 0, Math.PI * 2);
+                    ctx.fillStyle = '#03a9f4';
+                    ctx.fill();
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+
+                    // Draw rotation icon (curved arrow) inside handle
+                    ctx.beginPath();
+                    ctx.arc(0, -h/2 - rotateHandleDistance, 3, -Math.PI * 0.7, Math.PI * 0.3);
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+
                     ctx.restore();
+
+                    // Show rotation value if non-zero
+                    if (rotation !== 0) {
+                        ctx.font = '11px sans-serif';
+                        ctx.fillStyle = '#03a9f4';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(rotation + '°', centerX, y - 40);
+                    }
                 }
 
                 // Draw rotation indicator if rotation is set
@@ -3488,12 +3588,41 @@
             const resultRaw = document.getElementById('result-raw');
             const resultConfidence = document.getElementById('result-confidence');
             const resultPreview = document.getElementById('result-roi-preview');
+            const allProvidersEl = document.getElementById('all-providers-results');
+
+            // IMMEDIATELY show captured ROI from current canvas
+            if (currentROI.width > 0 && currentROI.height > 0 && currentImage) {
+                // Create a temporary canvas to extract the ROI
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d');
+
+                // Get ROI coordinates (already in original image coordinates)
+                const x = Math.round(currentROI.x);
+                const y = Math.round(currentROI.y);
+                const w = Math.round(currentROI.width);
+                const h = Math.round(currentROI.height);
+
+                // Ensure coordinates are within bounds
+                const safeX = Math.max(0, Math.min(x, currentImage.width - 1));
+                const safeY = Math.max(0, Math.min(y, currentImage.height - 1));
+                const safeW = Math.min(w, currentImage.width - safeX);
+                const safeH = Math.min(h, currentImage.height - safeY);
+
+                tempCanvas.width = safeW;
+                tempCanvas.height = safeH;
+                tempCtx.drawImage(currentImage, safeX, safeY, safeW, safeH, 0, 0, safeW, safeH);
+
+                // Show immediate preview
+                resultPreview.innerHTML = `<img src="${tempCanvas.toDataURL('image/png')}" style="width: 100%; display: block;">`;
+                resultPreview.style.display = 'block';
+            }
 
             resultValue.textContent = '...';
             resultValue.style.color = 'var(--text-3)';
-            resultRaw.innerHTML = '<div class="loading" style="width: 20px; height: 20px; margin: 0 auto;"></div>';
-            resultConfidence.textContent = 'Extracting...';
-            resultPreview.style.display = 'none';
+            resultRaw.innerHTML = '<div class="loading" style="width: 20px; height: 20px; display: inline-block; vertical-align: middle;"></div> <span style="color: var(--text-3);">Extracting text...</span>';
+            resultConfidence.textContent = '';
+            allProvidersEl.style.display = 'none';
+            allProvidersEl.innerHTML = '';
 
             // currentROI is already in original image coordinates (getMousePos divides by zoomLevel)
             const actualROI = {
@@ -3526,40 +3655,64 @@
                         confidence: data.confidence
                     };
 
-                    // Show ROI preview if available
-                    const previewEl = document.getElementById('result-roi-preview');
+                    // Update ROI preview with processed image from server (if available)
                     if (data.roi_preview) {
-                        previewEl.innerHTML = `<img src="data:image/png;base64,${data.roi_preview}" style="width: 100%; display: block;">`;
-                        previewEl.style.display = 'block';
-                    } else {
-                        previewEl.style.display = 'none';
+                        resultPreview.innerHTML = `<img src="data:image/png;base64,${data.roi_preview}" style="width: 100%; display: block;">`;
+                        resultPreview.style.display = 'block';
                     }
 
-                    document.getElementById('result-value').textContent =
-                        data.value !== null ? data.value : '--';
-                    document.getElementById('result-raw').textContent =
-                        `Raw: "${data.raw_text || ''}"`;
+                    // Show best result prominently
+                    resultValue.textContent = data.value !== null ? data.value : '--';
+                    resultRaw.textContent = `Raw: "${data.raw_text || ''}"`;
 
-                    // Show provider and confidence
+                    // Show provider and confidence for best result
                     const providerName = PROVIDER_INFO[data.selected_provider]?.name || data.selected_provider || 'Tesseract OCR';
-                    document.getElementById('result-confidence').textContent =
-                        `${providerName} • ${(data.confidence || 0).toFixed(1)}%`;
+                    resultConfidence.innerHTML = `<strong>${providerName}</strong> • ${(data.confidence || 0).toFixed(1)}% confidence`;
 
-                    document.getElementById('result-value').style.color =
+                    resultValue.style.color =
                         data.confidence > 50 ? 'var(--success)' :
                         data.confidence > 30 ? 'var(--warning)' : 'var(--error)';
+
+                    // Show all provider results if multiple providers were used
+                    if (data.provider_results && data.provider_results.length > 1) {
+                        let allResultsHtml = '<div style="font-size: 11px; color: var(--text-3); margin-bottom: 6px; font-weight: 500;">All Provider Results:</div>';
+
+                        data.provider_results.forEach(r => {
+                            const pInfo = PROVIDER_INFO[r.provider] || { name: r.provider };
+                            const isSelected = r.provider === data.selected_provider;
+                            const confColor = r.confidence > 50 ? 'var(--success)' : r.confidence > 30 ? 'var(--warning)' : 'var(--error)';
+
+                            allResultsHtml += `
+                                <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; margin: 2px 0; background: ${isSelected ? 'var(--primary-alpha)' : 'var(--bg)'}; border-radius: 4px; font-size: 12px;">
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <span style="font-weight: ${isSelected ? '600' : '400'};">${pInfo.name}</span>
+                                        ${isSelected ? '<span style="color: var(--primary); font-size: 10px;">★ BEST</span>' : ''}
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span style="color: ${r.error ? 'var(--error)' : 'var(--text-1)'}; font-weight: 500;">${r.error ? 'Error' : (r.value !== null ? r.value : '--')}</span>
+                                        <span style="color: ${confColor}; font-size: 11px;">${r.confidence ? r.confidence.toFixed(0) + '%' : ''}</span>
+                                    </div>
+                                </div>
+                            `;
+                        });
+
+                        allProvidersEl.innerHTML = allResultsHtml;
+                        allProvidersEl.style.display = 'block';
+                    }
 
                     // Show Save ROI button on successful extraction
                     document.getElementById('add-to-roi-btn').style.display = 'flex';
                 } else {
                     lastExtractionResult = null;
-                    document.getElementById('result-roi-preview').style.display = 'none';
-                    document.getElementById('result-value').textContent = 'Error';
-                    document.getElementById('result-raw').textContent = data.error || 'Unknown error';
-                    document.getElementById('result-confidence').textContent = '';
+                    resultPreview.style.display = 'none';
+                    resultValue.textContent = 'Error';
+                    resultRaw.textContent = data.error || 'Unknown error';
+                    resultConfidence.textContent = '';
+                    allProvidersEl.style.display = 'none';
                     document.getElementById('add-to-roi-btn').style.display = 'none';
                 }
             } catch (e) {
+                console.error('Extraction failed:', e);
                 toast('Extraction failed', 'error');
             }
         }
@@ -3871,13 +4024,31 @@
                 let bestResult = null;
                 let bestConfidence = 0;
 
-                for (const roi of rois) {
+                // Reset all ROI item styles before starting
+                document.querySelectorAll('.saved-roi-item').forEach(el => {
+                    el.style.borderColor = 'var(--border)';
+                    el.classList.remove('processing');
+                });
+
+                for (let i = 0; i < rois.length; i++) {
+                    const roi = rois[i];
+                    const roiEl = document.querySelector(`[data-roi-id="${roi.id}"]`);
                     const valueEl = document.getElementById(`roi-value-${roi.id}`);
                     // Get only the first span (extracted value), preserve validated value span
                     const extractedSpan = valueEl ? valueEl.querySelector('span:first-child') : null;
+
+                    // Highlight current ROI being processed
+                    if (roiEl) {
+                        roiEl.style.borderColor = 'var(--primary)';
+                        roiEl.style.boxShadow = '0 0 8px var(--primary-alpha)';
+                        roiEl.classList.add('processing');
+                        roiEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+
+                    btn.textContent = `Testing ${i + 1}/${rois.length}...`;
+
                     if (extractedSpan) {
-                        extractedSpan.textContent = '...';
-                        extractedSpan.style.color = 'var(--text-3)';
+                        extractedSpan.innerHTML = '<span class="loading" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle;"></span>';
                     }
 
                     try {
@@ -3893,10 +4064,21 @@
 
                         const data = await testRes.json();
 
+                        // Reset processing style
+                        if (roiEl) {
+                            roiEl.style.boxShadow = '';
+                            roiEl.classList.remove('processing');
+                        }
+
                         if (extractedSpan) {
                             if (data.success) {
                                 extractedSpan.textContent = data.value !== null ? data.value : '--';
-                                extractedSpan.style.color = data.confidence > 50 ? 'var(--success)' : 'var(--warning)';
+                                extractedSpan.style.color = data.confidence > 50 ? 'var(--success)' : data.confidence > 30 ? 'var(--warning)' : 'var(--error)';
+
+                                // Update border based on result quality
+                                if (roiEl) {
+                                    roiEl.style.borderColor = data.confidence > 50 ? 'var(--success)' : data.confidence > 30 ? 'var(--warning)' : 'var(--error)';
+                                }
 
                                 if (data.confidence > bestConfidence && data.value !== null) {
                                     bestConfidence = data.confidence;
@@ -3905,9 +4087,15 @@
                             } else {
                                 extractedSpan.textContent = 'Error';
                                 extractedSpan.style.color = 'var(--error)';
+                                if (roiEl) roiEl.style.borderColor = 'var(--error)';
                             }
                         }
                     } catch (e) {
+                        if (roiEl) {
+                            roiEl.style.boxShadow = '';
+                            roiEl.classList.remove('processing');
+                            roiEl.style.borderColor = 'var(--error)';
+                        }
                         if (extractedSpan) {
                             extractedSpan.textContent = 'Error';
                             extractedSpan.style.color = 'var(--error)';
@@ -3917,10 +4105,12 @@
 
                 if (bestResult) {
                     toast(`Best: ${bestResult.value} (${bestConfidence.toFixed(0)}% confidence)`, 'success');
-                    // Highlight best ROI
-                    document.querySelectorAll('.saved-roi-item').forEach(el => el.style.borderColor = 'var(--border)');
+                    // Highlight best ROI with star indicator
                     const bestEl = document.querySelector(`[data-roi-id="${bestResult.id}"]`);
-                    if (bestEl) bestEl.style.borderColor = 'var(--success)';
+                    if (bestEl) {
+                        bestEl.style.borderColor = 'var(--success)';
+                        bestEl.style.boxShadow = '0 0 12px rgba(76, 175, 80, 0.3)';
+                    }
                 } else {
                     toast('No valid results from any ROI', 'warning');
                 }

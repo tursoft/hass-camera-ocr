@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.2.39] - 2026
+
+### Added
+- **Test Extract Improvements**:
+  - Captured image now shows immediately before OCR processing starts
+  - All provider results displayed below the best result with confidence percentages
+  - Shows which provider was selected as "BEST" with a star indicator
+
+- **Interactive ROI Rotation**: Drag the rotation handle (circle above ROI) to rotate the rectangle on the live preview canvas
+  - Visual rotation handle with curved arrow icon
+  - Snaps to 15° increments when dragging near those angles
+  - Rotation angle displayed above the ROI
+
+- **Test All ROIs Progress Indicator**:
+  - Currently processing ROI is highlighted with pulsing blue border
+  - Auto-scrolls to show the active ROI
+  - Progress counter shows "Testing X/Y..."
+  - Each ROI border color indicates result quality (green/yellow/red)
+  - Loading spinner shown while extracting each ROI
+
 ## [1.2.38] - 2026
 
 ### Fixed
