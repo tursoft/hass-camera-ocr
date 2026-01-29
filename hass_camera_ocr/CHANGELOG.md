@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.43] - 2026
+
+### Changed
+- **OCR values are always positive**: Minus signs in OCR results are now removed - all extracted values are 0 or greater
+  - Applies to Tesseract, TrOCR (ML), and all other OCR providers
+  - Prevents misread display segments from being interpreted as negative numbers
+
 ## [1.2.42] - 2026
 
 ### Fixed

@@ -1738,9 +1738,15 @@ class MLService:
             # Decode
             generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
 
-        # Extract numeric value
+        # Extract numeric value - always return positive values
         numbers = re.findall(r'[-+]?\d*\.?\d+', generated_text)
-        extracted_value = numbers[0] if numbers else generated_text.strip()
+        if numbers:
+            try:
+                extracted_value = str(abs(float(numbers[0])))
+            except ValueError:
+                extracted_value = numbers[0].lstrip('-+')
+        else:
+            extracted_value = generated_text.strip()
 
         # Confidence estimation (based on text clarity)
         # TrOCR doesn't provide confidence directly, estimate from output
@@ -2474,13 +2480,13 @@ class CameraProcessor:
         confidences = [int(c) for c in data["conf"] if str(c).isdigit() and int(c) > 0]
         avg_confidence = sum(confidences) / len(confidences) if confidences else 0
 
-        # Parse value
+        # Parse value - always return positive values (remove minus signs)
         value = None
         for pattern in [r"-?\d+\.\d+", r"-?\d+,\d+", r"-?\d+"]:
             match = re.search(pattern, raw_text)
             if match:
                 try:
-                    value = float(match.group().replace(",", "."))
+                    value = abs(float(match.group().replace(",", ".")))
                     break
                 except ValueError:
                     continue
@@ -2794,11 +2800,11 @@ class CameraProcessor:
             best_result, selected_provider = self._select_best_result(provider_results)
 
             if best_result:
-                # Convert value to float
+                # Convert value to float - always positive
                 final_value = None
                 if best_result.value is not None:
                     try:
-                        final_value = float(best_result.value)
+                        final_value = abs(float(best_result.value))
                     except (ValueError, TypeError):
                         final_value = None
 
@@ -2905,7 +2911,7 @@ class CameraProcessor:
 
             if best_result and best_result.value is not None:
                 try:
-                    value = float(best_result.value)
+                    value = abs(float(best_result.value))  # Always positive
                 except (ValueError, TypeError):
                     value = None
             else:
