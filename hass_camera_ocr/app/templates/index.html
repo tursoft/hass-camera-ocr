@@ -4332,6 +4332,20 @@
             const camera = cameras[name] || {};
             const unit = camera.unit || '';
 
+            const providerNames = {
+                'tesseract': 'Tesseract OCR',
+                'easyocr': 'EasyOCR',
+                'paddleocr': 'PaddleOCR',
+                'ml': 'ML (TrOCR)',
+                'openai': 'OpenAI',
+                'anthropic': 'Anthropic',
+                'google': 'Google Gemini',
+                'ollama': 'Ollama',
+                'google-vision': 'Google Vision',
+                'azure-ocr': 'Azure OCR',
+                'aws-textract': 'AWS Textract'
+            };
+
             const time = roiData.timestamp ? new Date(roiData.timestamp * 1000).toLocaleString() : '--';
             const value = testResult.value !== undefined ? testResult.value : (roiData.extracted_value !== undefined ? roiData.extracted_value : '--');
             const confidence = testResult.confidence || roiData.confidence || 0;
@@ -4340,8 +4354,39 @@
             const validatedValue = roiData.validated_value;
             const validatedAt = roiData.validated_at ? new Date(roiData.validated_at * 1000).toLocaleString() : null;
 
+            // Build provider results section from cached test results
+            const providerResults = testResult.provider_results || [];
+            let providerResultsHtml = '';
+            if (providerResults.length > 0) {
+                providerResultsHtml = `
+                    <div class="history-detail-item full-width" style="margin-top: 12px;">
+                        <label>All Provider Results</label>
+                        <div class="provider-results-list" style="margin-top: 8px;">
+                            ${providerResults.map(r => {
+                                const isSelected = r.provider === testResult.selected_provider;
+                                const pName = providerNames[r.provider] || r.provider;
+                                return '<div class="provider-result-item ' + (isSelected ? 'selected' : '') + '">'
+                                    + '<div>'
+                                    + '<div class="result-provider">' + pName + (isSelected ? ' ✓' : '') + '</div>'
+                                    + '<div class="result-confidence">' + (r.confidence ? r.confidence.toFixed(0) + '%' : '') + '</div>'
+                                    + '</div>'
+                                    + '<div class="result-value" style="color: ' + (r.error ? 'var(--error)' : 'var(--text-1)') + '">'
+                                    + (r.error || r.value || '--')
+                                    + '</div>'
+                                    + '</div>';
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Store roiData for use by testSavedROIInDialog
+            const roiDataJson = JSON.stringify(roiData).replace(/"/g, '&quot;');
+            const roiJson = JSON.stringify(roiData.roi).replace(/"/g, '&quot;');
+
             const dialog = document.createElement('div');
             dialog.className = 'history-detail-dialog';
+            dialog.id = 'saved-roi-detail-dialog';
             dialog.onclick = (e) => { if (e.target === dialog) dialog.remove(); };
             dialog.innerHTML = `
                 <div class="history-detail-content">
@@ -4359,7 +4404,7 @@
                         <div class="history-detail-grid">
                             <div class="history-detail-item">
                                 <label>OCR Value</label>
-                                <div class="value" style="color: ${confidence < 80 && confidence > 0 ? 'var(--error)' : 'var(--primary)'};">
+                                <div class="value" id="roi-detail-ocr-value" style="color: ${confidence < 80 && confidence > 0 ? 'var(--error)' : 'var(--primary)'};">
                                     ${value} ${unit}
                                 </div>
                             </div>
@@ -4376,14 +4421,14 @@
                             </div>
                             <div class="history-detail-item">
                                 <label>Confidence</label>
-                                <div class="value">
+                                <div class="value" id="roi-detail-confidence">
                                     ${confidence > 0 ? confidence.toFixed(1) + '%' : '--'}
                                     ${confidence > 0 ? `<div class="confidence-bar" style="margin-top: 4px;"><div class="confidence-bar-fill ${barClass}" style="width: ${confidence}%"></div></div>` : ''}
                                 </div>
                             </div>
                             <div class="history-detail-item">
                                 <label>Raw Text</label>
-                                <div class="value">${rawText}</div>
+                                <div class="value" id="roi-detail-raw">${rawText}</div>
                             </div>
                             <div class="history-detail-item">
                                 <label>ROI Coordinates</label>
@@ -4392,10 +4437,11 @@
                                 </div>
                             </div>
                         </div>
+                        <div id="roi-detail-provider-results">${providerResultsHtml}</div>
                         <div style="margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap;">
-                            <button class="btn btn-primary" onclick="applySavedROI(${JSON.stringify(roiData.roi)}); this.closest('.history-detail-dialog').remove();">Apply ROI</button>
-                            <button class="btn btn-secondary" onclick="testSavedROI(${JSON.stringify(roiData.roi)}, '${roiId}'); this.closest('.history-detail-dialog').remove();">Test Extract</button>
-                            <button class="btn btn-secondary" onclick="showValidateDialog('${roiId}', ${JSON.stringify(roiData).replace(/"/g, '&quot;')})" style="background: var(--warning); color: #000;">
+                            <button class="btn btn-primary" onclick="applySavedROI(${roiJson}); this.closest('.history-detail-dialog').remove();">Apply ROI</button>
+                            <button class="btn btn-secondary" id="roi-detail-test-btn" onclick="testSavedROIInDialog(${roiJson}, '${roiId}')">Test Extract</button>
+                            <button class="btn btn-secondary" onclick="showValidateDialog('${roiId}', ${roiDataJson})" style="background: var(--warning); color: #000;">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="margin-right: 4px;">
                                     <path d="M9 11l3 3L22 4"></path>
                                     <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
@@ -4407,6 +4453,139 @@
                 </div>
             `;
             document.body.appendChild(dialog);
+        }
+
+        async function testSavedROIInDialog(roi, roiId) {
+            const name = document.getElementById('live-camera-select').value;
+            if (!name) {
+                toast('Please select a camera first', 'error');
+                return;
+            }
+
+            const providerNames = {
+                'tesseract': 'Tesseract OCR',
+                'easyocr': 'EasyOCR',
+                'paddleocr': 'PaddleOCR',
+                'ml': 'ML (TrOCR)',
+                'openai': 'OpenAI',
+                'anthropic': 'Anthropic',
+                'google': 'Google Gemini',
+                'ollama': 'Ollama',
+                'google-vision': 'Google Vision',
+                'azure-ocr': 'Azure OCR',
+                'aws-textract': 'AWS Textract'
+            };
+
+            const camera = cameras[name] || {};
+            const unit = camera.unit || '';
+
+            // Show loading state on button
+            const testBtn = document.getElementById('roi-detail-test-btn');
+            if (testBtn) {
+                testBtn.disabled = true;
+                testBtn.innerHTML = '<div class="loading" style="width: 14px; height: 14px; display: inline-block; margin-right: 6px;"></div>Testing...';
+            }
+
+            // Show loading in OCR value
+            const ocrValueEl = document.getElementById('roi-detail-ocr-value');
+            if (ocrValueEl) {
+                ocrValueEl.innerHTML = '<div class="loading" style="width: 16px; height: 16px; display: inline-block;"></div>';
+            }
+
+            try {
+                const res = await fetch('api/test-extraction', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        camera_name: name,
+                        roi: roi,
+                        preprocessing: document.getElementById('live-preprocessing').value
+                    })
+                });
+
+                const data = await res.json();
+
+                // Store result for future dialog opens and card updates
+                savedRoiTestResults[roiId] = {
+                    ...data,
+                    roi: roi,
+                    timestamp: Date.now() / 1000,
+                    camera_name: name
+                };
+
+                // Update OCR Value in dialog
+                if (ocrValueEl) {
+                    const val = data.success && data.value !== null ? data.value : '--';
+                    const conf = data.confidence || 0;
+                    ocrValueEl.style.color = conf < 80 && conf > 0 ? 'var(--error)' : 'var(--primary)';
+                    ocrValueEl.textContent = val + ' ' + unit;
+                }
+
+                // Update Confidence in dialog
+                const confEl = document.getElementById('roi-detail-confidence');
+                if (confEl && data.confidence !== undefined) {
+                    const conf = data.confidence;
+                    const barCls = conf >= 80 ? 'high' : conf >= 50 ? 'medium' : 'low';
+                    confEl.innerHTML = conf > 0
+                        ? conf.toFixed(1) + '%' + '<div class="confidence-bar" style="margin-top: 4px;"><div class="confidence-bar-fill ' + barCls + '" style="width: ' + conf + '%"></div></div>'
+                        : '--';
+                }
+
+                // Update Raw Text in dialog
+                const rawEl = document.getElementById('roi-detail-raw');
+                if (rawEl) {
+                    rawEl.textContent = data.raw_text || '--';
+                }
+
+                // Update Provider Results in dialog
+                const provResultsEl = document.getElementById('roi-detail-provider-results');
+                if (provResultsEl && data.provider_results && data.provider_results.length > 0) {
+                    let html = '<div class="history-detail-item full-width" style="margin-top: 12px;">'
+                        + '<label>All Provider Results</label>'
+                        + '<div class="provider-results-list" style="margin-top: 8px;">';
+                    data.provider_results.forEach(r => {
+                        const isSelected = r.provider === data.selected_provider;
+                        const pName = providerNames[r.provider] || r.provider;
+                        html += '<div class="provider-result-item ' + (isSelected ? 'selected' : '') + '">'
+                            + '<div>'
+                            + '<div class="result-provider">' + pName + (isSelected ? ' ✓' : '') + '</div>'
+                            + '<div class="result-confidence">' + (r.confidence ? r.confidence.toFixed(0) + '%' : '') + '</div>'
+                            + '</div>'
+                            + '<div class="result-value" style="color: ' + (r.error ? 'var(--error)' : 'var(--text-1)') + '">'
+                            + (r.error || r.value || '--')
+                            + '</div>'
+                            + '</div>';
+                    });
+                    html += '</div></div>';
+                    provResultsEl.innerHTML = html;
+                }
+
+                // Also update the card in the saved ROI list
+                const cardEl = document.querySelector(`.saved-roi-item[data-roi-id="${roiId}"]`);
+                const valueEl = document.getElementById(`roi-value-${roiId}`);
+                const extractedSpan = valueEl ? valueEl.querySelector('span:first-child') : null;
+                if (data.success && extractedSpan) {
+                    extractedSpan.textContent = data.value !== null ? data.value : '--';
+                    extractedSpan.style.color = data.confidence > 50 ? 'var(--success)' : 'var(--warning)';
+                }
+
+                if (data.success) {
+                    toast(`Value: ${data.value} (${data.confidence.toFixed(0)}%)`, 'success');
+                } else {
+                    toast(data.error || 'Extraction failed', 'error');
+                }
+            } catch (e) {
+                if (ocrValueEl) {
+                    ocrValueEl.textContent = 'Error';
+                    ocrValueEl.style.color = 'var(--error)';
+                }
+                toast('Test failed', 'error');
+            } finally {
+                if (testBtn) {
+                    testBtn.disabled = false;
+                    testBtn.textContent = 'Test Extract';
+                }
+            }
         }
 
         function showValidateDialog(roiId, roiData) {

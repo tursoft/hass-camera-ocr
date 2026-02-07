@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.45] - 2026
+
+### Fixed
+- **Test Extract button in Saved ROI Details dialog**: Fixed broken onclick handler caused by unescaped JSON in HTML attributes
+- **Apply ROI button**: Same HTML escaping fix applied
+
+### Added
+- **Per-provider OCR results in ROI Details dialog**: Shows results from all configured OCR providers after Test Extract, with selected provider highlighted
+- **In-place test results**: Test Extract updates the dialog in-place instead of closing it
+
 ## [1.2.44] - 2026
 
 ### Changed
