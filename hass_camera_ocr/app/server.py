@@ -2390,14 +2390,14 @@ class CameraProcessor:
             return rotated
 
     def preprocess_image(self, image: np.ndarray, method: str) -> np.ndarray:
-        """Preprocess image for OCR."""
+        """Preprocess image for OCR, optimized for 7-segment digital displays."""
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         else:
             gray = image.copy()
 
         # Add padding to prevent digit cutoff at edges
-        pad = 10
+        pad = 15
         gray = cv2.copyMakeBorder(gray, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=255)
 
         # Scale up small images significantly for better OCR
@@ -2408,7 +2408,8 @@ class CameraProcessor:
             scale = max(200 / h, 200 / w, 4)
         else:
             scale = 3
-        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        # INTER_LANCZOS4 produces sharper edges than INTER_CUBIC, better for 7-segment digits
+        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_LANCZOS4)
 
         # Enhance contrast for digital displays
         gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
@@ -2417,44 +2418,67 @@ class CameraProcessor:
             return gray
         elif method == "threshold":
             _, processed = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            # Morphological cleanup for digits
-            kernel = np.ones((2, 2), np.uint8)
-            processed = cv2.morphologyEx(processed, cv2.MORPH_CLOSE, kernel)
+            # Morphological cleanup: close gaps in 7-segment digits then dilate to thicken
+            kernel_close = np.ones((3, 3), np.uint8)
+            processed = cv2.morphologyEx(processed, cv2.MORPH_CLOSE, kernel_close)
+            kernel_dilate = np.ones((2, 2), np.uint8)
+            processed = cv2.dilate(processed, kernel_dilate, iterations=1)
             return processed
         elif method == "adaptive":
             processed = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                          cv2.THRESH_BINARY, 15, 3)
-            kernel = np.ones((2, 2), np.uint8)
-            processed = cv2.morphologyEx(processed, cv2.MORPH_CLOSE, kernel)
+            kernel_close = np.ones((3, 3), np.uint8)
+            processed = cv2.morphologyEx(processed, cv2.MORPH_CLOSE, kernel_close)
             return processed
         elif method == "invert":
             _, processed = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
             processed = cv2.bitwise_not(processed)
-            kernel = np.ones((2, 2), np.uint8)
-            processed = cv2.morphologyEx(processed, cv2.MORPH_CLOSE, kernel)
+            kernel_close = np.ones((3, 3), np.uint8)
+            processed = cv2.morphologyEx(processed, cv2.MORPH_CLOSE, kernel_close)
+            kernel_dilate = np.ones((2, 2), np.uint8)
+            processed = cv2.dilate(processed, kernel_dilate, iterations=1)
             return processed
-        else:  # auto - try multiple methods and return best
-            # Apply CLAHE for better contrast on digital displays
-            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        else:  # auto - optimized for 7-segment digital displays
+            # Apply CLAHE with higher clip limit for digital displays with bright segments
+            clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
             enhanced = clahe.apply(gray)
 
-            # Denoise while preserving edges
+            # Denoise while preserving edges (digit segment boundaries)
             denoised = cv2.bilateralFilter(enhanced, 9, 75, 75)
 
-            # Sharpen to enhance digit edges
+            # Sharpen to enhance digit segment edges
             kernel_sharpen = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
             sharpened = cv2.filter2D(denoised, -1, kernel_sharpen)
 
-            # Try Otsu's threshold
+            # Otsu's threshold for clean binary image
             blurred = cv2.GaussianBlur(sharpened, (3, 3), 0)
             _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-            # Morphological cleanup to connect digit segments
-            kernel = np.ones((2, 2), np.uint8)
-            binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+            # Morphological close with larger kernel to bridge 7-segment gaps
+            kernel_close = np.ones((3, 3), np.uint8)
+            binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_close)
 
-            # Determine if we need to invert based on the mean
-            if np.mean(sharpened) < 127:
+            # Dilate slightly to thicken thin segments for better OCR recognition
+            kernel_dilate = np.ones((2, 2), np.uint8)
+            binary = cv2.dilate(binary, kernel_dilate, iterations=1)
+
+            # Determine if we need to invert: for digital displays, digits are
+            # typically bright on dark background. Check the border region vs center.
+            border = np.concatenate([binary[0,:], binary[-1,:], binary[:,0], binary[:,-1]])
+            center_h, center_w = binary.shape[0]//2, binary.shape[1]//2
+            quarter_h, quarter_w = binary.shape[0]//4, binary.shape[1]//4
+            center_region = binary[center_h-quarter_h:center_h+quarter_h, center_w-quarter_w:center_w+quarter_w]
+            border_mean = np.mean(border)
+            center_mean = np.mean(center_region) if center_region.size > 0 else np.mean(binary)
+
+            # If border is brighter than center, digits are dark on light = already correct
+            # If center is brighter than border, digits are bright on dark = need invert
+            if border_mean > center_mean + 30:
+                return binary
+            elif center_mean > border_mean + 30:
+                return cv2.bitwise_not(binary)
+            # Fallback: use overall mean
+            elif np.mean(sharpened) < 127:
                 return cv2.bitwise_not(binary)
             return binary
 
@@ -2472,7 +2496,7 @@ class CameraProcessor:
 
     def _ocr_single(self, processed: np.ndarray, psm: int = 7) -> tuple:
         """Run OCR on a single preprocessed image."""
-        config = f"--oem 3 --psm {psm} -c tessedit_char_whitelist=0123456789.-"
+        config = f"--oem 3 --psm {psm} --dpi 300 -c tessedit_char_whitelist=0123456789.-"
         raw_text = pytesseract.image_to_string(processed, config=config).strip()
 
         # Get confidence
@@ -2508,23 +2532,29 @@ class CameraProcessor:
         """
         try:
             if provider == 'tesseract':
-                # Run Tesseract OCR with multiple preprocessing methods
+                # Run Tesseract OCR with multiple preprocessing methods + inversions
                 best_result = (None, "", 0)
                 methods = ['auto', 'threshold', 'adaptive', 'invert'] if camera.preprocessing == 'auto' else [camera.preprocessing]
                 psm_modes = [7, 8, 6, 13]
 
                 for method in methods:
                     processed = self.preprocess_image(roi_frame, method)
-                    for psm in psm_modes:
-                        try:
-                            value, raw_text, confidence = self._ocr_single(processed, psm)
-                            if value is not None and confidence > best_result[2]:
-                                best_result = (value, raw_text, confidence)
-                            if confidence > 80 and value is not None:
-                                break
-                        except:
-                            continue
-                    if best_result[2] > 80:
+                    # Try both normal and inverted for each method (7-segment displays
+                    # can be bright-on-dark or dark-on-light depending on preprocessing)
+                    variants = [processed, cv2.bitwise_not(processed)]
+                    for variant in variants:
+                        for psm in psm_modes:
+                            try:
+                                value, raw_text, confidence = self._ocr_single(variant, psm)
+                                if value is not None and confidence > best_result[2]:
+                                    best_result = (value, raw_text, confidence)
+                                if confidence > 90 and value is not None:
+                                    break
+                            except:
+                                continue
+                        if best_result[2] > 90:
+                            break
+                    if best_result[2] > 90:
                         break
 
                 return ProviderResult(
@@ -2553,7 +2583,7 @@ class CameraProcessor:
                                          confidence=0, error=str(e))
 
             elif provider == 'easyocr':
-                # EasyOCR - supports multiple languages, good for various fonts
+                # EasyOCR - try multiple preprocessing methods for best results
                 global easyocr_reader
                 if not EASYOCR_AVAILABLE:
                     return ProviderResult(provider='easyocr', value=None, raw_text='',
@@ -2566,32 +2596,47 @@ class CameraProcessor:
                         easyocr_reader = easyocr.Reader(['en'], gpu=False)
                         logger.info("EasyOCR reader initialized")
 
-                    # Preprocess image for better OCR
-                    processed = self.preprocess_image(roi_frame, camera.preprocessing or 'auto')
+                    best_value, best_raw, best_conf = None, '', 0
+                    methods = ['auto', 'threshold', 'invert'] if (camera.preprocessing or 'auto') == 'auto' else [camera.preprocessing]
 
-                    # Run EasyOCR with allowlist for numbers only
-                    results = easyocr_reader.readtext(processed, allowlist='0123456789.-')
+                    for method in methods:
+                        processed = self.preprocess_image(roi_frame, method)
+                        # Try both normal and inverted
+                        for variant in [processed, cv2.bitwise_not(processed)]:
+                            try:
+                                results = easyocr_reader.readtext(
+                                    variant,
+                                    allowlist='0123456789.-',
+                                    text_threshold=0.3,
+                                    low_text=0.3
+                                )
+                                if results:
+                                    raw_texts = [r[1] for r in results]
+                                    confidences = [r[2] for r in results]
+                                    raw_text = ' '.join(raw_texts)
+                                    avg_confidence = sum(confidences) / len(confidences) * 100
 
-                    if results:
-                        # Combine all detected text
-                        raw_texts = [r[1] for r in results]
-                        confidences = [r[2] for r in results]
-                        raw_text = ' '.join(raw_texts)
-                        avg_confidence = sum(confidences) / len(confidences) * 100
+                                    numbers = re.findall(r'[-+]?\d*\.?\d+', raw_text)
+                                    value = str(abs(float(numbers[0]))) if numbers else None
 
-                        # Extract numeric value - always positive
-                        numbers = re.findall(r'[-+]?\d*\.?\d+', raw_text)
-                        value = str(abs(float(numbers[0]))) if numbers else None
+                                    if value is not None and avg_confidence > best_conf:
+                                        best_value, best_raw, best_conf = value, raw_text, avg_confidence
+                                    if best_conf > 90:
+                                        break
+                            except:
+                                continue
+                        if best_conf > 90:
+                            break
 
+                    if best_value is not None:
                         return ProviderResult(
                             provider='easyocr',
-                            value=value,
-                            raw_text=raw_text,
-                            confidence=avg_confidence
+                            value=best_value,
+                            raw_text=best_raw,
+                            confidence=best_conf
                         )
-                    else:
-                        return ProviderResult(provider='easyocr', value=None, raw_text='',
-                                             confidence=0, error='No text detected')
+                    return ProviderResult(provider='easyocr', value=None, raw_text='',
+                                         confidence=0, error='No text detected')
 
                 except Exception as e:
                     logger.error(f"EasyOCR error: {e}")
@@ -2599,7 +2644,7 @@ class CameraProcessor:
                                          confidence=0, error=str(e))
 
             elif provider == 'paddleocr':
-                # PaddleOCR - high accuracy, especially for structured text
+                # PaddleOCR - try multiple preprocessing methods for best results
                 global paddleocr_engine
                 if not PADDLEOCR_AVAILABLE:
                     return ProviderResult(provider='paddleocr', value=None, raw_text='',
@@ -2612,42 +2657,50 @@ class CameraProcessor:
                         paddleocr_engine = PaddleOCR(use_angle_cls=True, lang='en', use_gpu=False, show_log=False)
                         logger.info("PaddleOCR engine initialized")
 
-                    # Preprocess image for better OCR
-                    processed = self.preprocess_image(roi_frame, camera.preprocessing or 'auto')
+                    best_value, best_raw, best_conf = None, '', 0
+                    methods = ['auto', 'threshold', 'invert'] if (camera.preprocessing or 'auto') == 'auto' else [camera.preprocessing]
 
-                    # Run PaddleOCR
-                    results = paddleocr_engine.ocr(processed, cls=True)
+                    for method in methods:
+                        processed = self.preprocess_image(roi_frame, method)
+                        # Try both normal and inverted
+                        for variant in [processed, cv2.bitwise_not(processed)]:
+                            try:
+                                results = paddleocr_engine.ocr(variant, cls=True)
+                                if results and results[0]:
+                                    raw_texts = []
+                                    confidences = []
+                                    for line in results[0]:
+                                        if line and len(line) >= 2:
+                                            text_info = line[1]
+                                            if isinstance(text_info, tuple) and len(text_info) >= 2:
+                                                text = text_info[0]
+                                                numeric_text = re.sub(r'[^0-9.\-]', '', text)
+                                                if numeric_text:
+                                                    raw_texts.append(numeric_text)
+                                                    confidences.append(text_info[1])
 
-                    if results and results[0]:
-                        # Extract text and confidence from results
-                        raw_texts = []
-                        confidences = []
-                        for line in results[0]:
-                            if line and len(line) >= 2:
-                                text_info = line[1]
-                                if isinstance(text_info, tuple) and len(text_info) >= 2:
-                                    text = text_info[0]
-                                    # Filter to keep only numeric characters
-                                    numeric_text = re.sub(r'[^0-9.\-]', '', text)
-                                    if numeric_text:
-                                        raw_texts.append(numeric_text)
-                                        confidences.append(text_info[1])
+                                    if raw_texts:
+                                        raw_text = ' '.join(raw_texts)
+                                        avg_confidence = sum(confidences) / len(confidences) * 100
+                                        numbers = re.findall(r'[-+]?\d*\.?\d+', raw_text)
+                                        value = str(abs(float(numbers[0]))) if numbers else None
 
-                        if raw_texts:
-                            raw_text = ' '.join(raw_texts)
-                            avg_confidence = sum(confidences) / len(confidences) * 100
+                                        if value is not None and avg_confidence > best_conf:
+                                            best_value, best_raw, best_conf = value, raw_text, avg_confidence
+                                        if best_conf > 90:
+                                            break
+                            except:
+                                continue
+                        if best_conf > 90:
+                            break
 
-                            # Extract numeric value - always positive
-                            numbers = re.findall(r'[-+]?\d*\.?\d+', raw_text)
-                            value = str(abs(float(numbers[0]))) if numbers else None
-
-                            return ProviderResult(
-                                provider='paddleocr',
-                                value=value,
-                                raw_text=raw_text,
-                                confidence=avg_confidence
-                            )
-
+                    if best_value is not None:
+                        return ProviderResult(
+                            provider='paddleocr',
+                            value=best_value,
+                            raw_text=best_raw,
+                            confidence=best_conf
+                        )
                     return ProviderResult(provider='paddleocr', value=None, raw_text='',
                                          confidence=0, error='No text detected')
 

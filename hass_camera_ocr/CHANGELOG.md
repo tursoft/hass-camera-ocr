@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.46] - 2026
+
+### Improved
+- **OCR accuracy for 7-segment digital displays** (combi boilers, gauges, meters):
+  - **Preprocessing**: INTER_LANCZOS4 upscaling for sharper digit edges, larger morphological kernels (3x3) to bridge 7-segment gaps, dilation to thicken thin segments, higher CLAHE contrast (clipLimit=4.0), smarter auto-inversion using border vs center brightness analysis
+  - **Tesseract**: Added `--dpi 300`, tries both normal and inverted images for each preprocessing method, raised early-exit threshold from 80% to 90%
+  - **EasyOCR**: Now tries multiple preprocessing methods (auto/threshold/invert) with normal+inverted variants, added `text_threshold=0.3` and `low_text=0.3` for better small digit detection
+  - **PaddleOCR**: Now tries multiple preprocessing methods with normal+inverted variants
+
 ## [1.2.45] - 2026
 
 ### Fixed
