@@ -77,6 +77,7 @@ HISTORY_PATH = os.path.join(CONFIG_PATH, 'history.json')
 SAVED_ROIS_PATH = os.path.join(CONFIG_PATH, 'saved_rois')
 HISTORY_IMAGES_PATH = os.path.join(CONFIG_PATH, 'history_images')
 ML_MODELS_PATH = os.path.join(CONFIG_PATH, 'ml_models')
+VIEWS_PATH = os.path.join(CONFIG_PATH, 'views')
 
 # Ensure directories exist
 Path(CONFIG_PATH).mkdir(parents=True, exist_ok=True)
@@ -85,6 +86,7 @@ Path(DATA_PATH).mkdir(parents=True, exist_ok=True)
 Path(SAVED_ROIS_PATH).mkdir(parents=True, exist_ok=True)
 Path(HISTORY_IMAGES_PATH).mkdir(parents=True, exist_ok=True)
 Path(ML_MODELS_PATH).mkdir(parents=True, exist_ok=True)
+Path(VIEWS_PATH).mkdir(parents=True, exist_ok=True)
 
 
 @dataclass
@@ -118,6 +120,7 @@ class CameraConfig:
     ocr_providers: list = field(default_factory=list)  # List of enabled providers: ['tesseract', 'ml', 'google-vision', etc.]
     provider_configs: dict = field(default_factory=dict)  # Provider-specific configs: {'google-vision': {'api_key': '...'}, ...}
     use_ml_roi_locator: bool = False  # Use ML to auto-locate ROI in frames
+    views: list = field(default_factory=list)  # List of view dicts for patrol camera support
 
 
 @dataclass
@@ -352,6 +355,132 @@ class TemplateMatcher:
                 'created': data.get('created', 0)
             })
         return result
+
+
+class ViewMatcher:
+    """Match camera frames against stored reference images to detect which view is active."""
+
+    def __init__(self, views_path: str):
+        self.views_path = Path(views_path)
+        self._last_match: dict[str, str] = {}  # camera_name -> last matched view_id
+
+    def get_view_dir(self, camera_name: str, view_id: str) -> Path:
+        """Get directory for a view's reference images."""
+        safe_name = re.sub(r'[^\w\-]', '_', camera_name)
+        return self.views_path / safe_name / view_id
+
+    def save_reference_image(self, camera_name: str, view_id: str, frame: np.ndarray, index: int) -> str:
+        """Save a reference image for a view. Index 0-2 for up to 3 reference images."""
+        view_dir = self.get_view_dir(camera_name, view_id)
+        view_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = f"ref_{index}.png"
+        img_path = view_dir / filename
+        cv2.imwrite(str(img_path), frame)
+        logger.info(f"Saved reference image {index} for view {view_id} of camera {camera_name}")
+        return filename
+
+    def delete_reference_image(self, camera_name: str, view_id: str, index: int) -> bool:
+        """Delete a specific reference image."""
+        view_dir = self.get_view_dir(camera_name, view_id)
+        img_path = view_dir / f"ref_{index}.png"
+        if img_path.exists():
+            img_path.unlink()
+            return True
+        return False
+
+    def delete_view_images(self, camera_name: str, view_id: str):
+        """Delete all reference images for a view."""
+        view_dir = self.get_view_dir(camera_name, view_id)
+        if view_dir.exists():
+            import shutil
+            shutil.rmtree(str(view_dir), ignore_errors=True)
+
+    def get_reference_images(self, camera_name: str, view_id: str) -> list:
+        """Get list of reference image paths for a view."""
+        view_dir = self.get_view_dir(camera_name, view_id)
+        images = []
+        for i in range(3):
+            img_path = view_dir / f"ref_{i}.png"
+            if img_path.exists():
+                images.append(str(img_path))
+            else:
+                images.append(None)
+        return images
+
+    def _compare_frames(self, frame: np.ndarray, reference_path: str) -> float:
+        """Compare a frame against a reference image using normalized cross-correlation.
+        Returns similarity score 0.0-1.0."""
+        try:
+            ref_img = cv2.imread(reference_path, cv2.IMREAD_GRAYSCALE)
+            if ref_img is None:
+                return 0.0
+
+            # Convert frame to grayscale
+            if len(frame.shape) == 3:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = frame.copy()
+
+            # Resize both to same dimensions for comparison (smaller for speed)
+            target_size = (320, 240)
+            gray_resized = cv2.resize(gray, target_size, interpolation=cv2.INTER_AREA)
+            ref_resized = cv2.resize(ref_img, target_size, interpolation=cv2.INTER_AREA)
+
+            # Normalized cross-correlation
+            result = cv2.matchTemplate(gray_resized, ref_resized, cv2.TM_CCOEFF_NORMED)
+            score = float(result[0][0])
+
+            return max(0.0, score)
+        except Exception as e:
+            logger.debug(f"Frame comparison error: {e}")
+            return 0.0
+
+    def match_view(self, frame: np.ndarray, camera_name: str, views: list) -> Optional[dict]:
+        """Determine which view (if any) matches the current frame.
+        Returns {'view_id': ..., 'confidence': ...} or None."""
+        if not views:
+            return None
+
+        best_view_id = None
+        best_score = 0.0
+
+        for view in views:
+            view_id = view.get('id', '')
+            threshold = view.get('match_threshold', 0.6)
+            ref_images = self.get_reference_images(camera_name, view_id)
+
+            # Compare against all reference images, take the best score
+            view_best_score = 0.0
+            for ref_path in ref_images:
+                if ref_path is None:
+                    continue
+                score = self._compare_frames(frame, ref_path)
+                view_best_score = max(view_best_score, score)
+
+            if view_best_score >= threshold and view_best_score > best_score:
+                best_score = view_best_score
+                best_view_id = view_id
+
+        if best_view_id:
+            self._last_match[camera_name] = best_view_id
+            return {'view_id': best_view_id, 'confidence': best_score}
+
+        return None
+
+    def test_match(self, frame: np.ndarray, camera_name: str, view_id: str) -> dict:
+        """Test if a frame matches a specific view. Returns score details."""
+        ref_images = self.get_reference_images(camera_name, view_id)
+        scores = []
+        for i, ref_path in enumerate(ref_images):
+            if ref_path is None:
+                scores.append({'index': i, 'score': 0.0, 'has_image': False})
+            else:
+                score = self._compare_frames(frame, ref_path)
+                scores.append({'index': i, 'score': round(score, 4), 'has_image': True})
+
+        best_score = max((s['score'] for s in scores), default=0.0)
+        return {'scores': scores, 'best_score': round(best_score, 4)}
 
 
 class ONVIFDiscovery:
@@ -1995,6 +2124,7 @@ class CameraProcessor:
         self.values: dict[str, ExtractedValue] = {}
         self.history: dict[str, list] = {}  # Store last 20 values per camera
         self.template_matcher = TemplateMatcher(TEMPLATES_PATH)
+        self.view_matcher = ViewMatcher(VIEWS_PATH)
         self._lock = threading.Lock()
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -3076,33 +3206,83 @@ class CameraProcessor:
 
         return result
 
-    def process_camera(self, camera: CameraConfig):
-        """Process a single camera."""
-        frame, error = self.capture_frame(camera)
+    def _add_to_history(self, camera_name: str, result: ExtractedValue, frame: np.ndarray,
+                         roi_x: int = 0, roi_y: int = 0, roi_w: int = 0, roi_h: int = 0,
+                         view_id: str = None, view_name: str = None):
+        """Add an extraction result to history with optional view info."""
+        if camera_name not in self.history:
+            self.history[camera_name] = []
 
-        if error:
-            self.values[camera.name] = ExtractedValue(
-                camera_name=camera.name,
-                value=None,
-                raw_text="",
-                confidence=0,
-                timestamp=time.time(),
-                error=error,
-            )
-            # Update Home Assistant sensors with error state
-            HomeAssistantIntegration.update_sensor(
-                camera_name=camera.name,
-                value=None,
-                raw_text="",
-                confidence=0,
-                unit=camera.unit,
-                error=error
-            )
-            return
+        history_id = f"{int(result.timestamp * 1000)}"
+        roi_image_id = None
+        try:
+            if roi_w > 0 and roi_h > 0:
+                img_h, img_w = frame.shape[:2]
+                x = max(0, min(roi_x, img_w - 1))
+                y = max(0, min(roi_y, img_h - 1))
+                w = min(roi_w, img_w - x)
+                h = min(roi_h, img_h - y)
+                roi_frame = frame[y:y+h, x:x+w]
+            else:
+                roi_frame = frame
 
+            max_dim = 200
+            rh, rw = roi_frame.shape[:2]
+            if rw > max_dim or rh > max_dim:
+                scale = max_dim / max(rw, rh)
+                roi_frame = cv2.resize(roi_frame, (int(rw * scale), int(rh * scale)))
+
+            safe_name = re.sub(r'[^\w\-]', '_', camera_name)
+            camera_img_path = Path(HISTORY_IMAGES_PATH) / safe_name
+            camera_img_path.mkdir(parents=True, exist_ok=True)
+            img_path = camera_img_path / f"{history_id}.jpg"
+            cv2.imwrite(str(img_path), roi_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            roi_image_id = history_id
+        except Exception as e:
+            logger.debug(f"Failed to save history ROI image: {e}")
+
+        entry = {
+            'value': result.value,
+            'timestamp': result.timestamp,
+            'confidence': result.confidence,
+            'raw_text': result.raw_text,
+            'error': result.error,
+            'video_description': result.video_description,
+            'roi_image_id': roi_image_id,
+            'ocr_provider': result.selected_provider,
+            'provider_results': result.provider_results,
+            'roi_x': result.roi_x,
+            'roi_y': result.roi_y,
+            'roi_width': result.roi_width,
+            'roi_height': result.roi_height,
+            'roi_rotation': result.roi_rotation,
+        }
+        if view_id:
+            entry['view_id'] = view_id
+            entry['view_name'] = view_name or ''
+
+        self.history[camera_name].append(entry)
+
+        # Keep only last MAX_HISTORY entries and clean up old images
+        if len(self.history[camera_name]) > self.MAX_HISTORY:
+            old_entries = self.history[camera_name][:-self.MAX_HISTORY]
+            self.history[camera_name] = self.history[camera_name][-self.MAX_HISTORY:]
+            safe_name = re.sub(r'[^\w\-]', '_', camera_name)
+            for old_entry in old_entries:
+                if old_entry.get('roi_image_id'):
+                    try:
+                        old_img = Path(HISTORY_IMAGES_PATH) / safe_name / f"{old_entry['roi_image_id']}.jpg"
+                        if old_img.exists():
+                            old_img.unlink()
+                    except Exception:
+                        pass
+
+    def _process_single_extraction(self, camera: CameraConfig, frame: np.ndarray,
+                                    view_id: str = None, view_name: str = None):
+        """Extract value from frame and record result. Used for both legacy and multi-view modes."""
         result = self.extract_value(camera, frame)
 
-        # Filter out values outside expected range (if configured)
+        # Filter out values outside expected range
         if result.value is not None:
             out_of_range = False
             if camera.min_value is not None and result.value < camera.min_value:
@@ -3115,7 +3295,7 @@ class CameraProcessor:
                 result.error = f"Value {result.value} out of expected range ({camera.min_value or '-∞'} to {camera.max_value or '+∞'})"
                 result.value = None
 
-        # Generate AI scene description if enabled (use camera-specific config or global)
+        # Generate AI scene description if enabled
         if camera.ai_enabled_for_description or (camera.ai_provider == 'none' and AIService.load_config().enabled_for_description):
             try:
                 _, buffer = cv2.imencode('.jpg', frame)
@@ -3138,84 +3318,105 @@ class CameraProcessor:
         )
 
         # Add to history
-        if camera.name not in self.history:
-            self.history[camera.name] = []
-
-        # Save ROI image for history
-        history_id = f"{int(result.timestamp * 1000)}"
-        roi_image_id = None
-        try:
-            # Extract ROI area from frame
-            if camera.roi_width > 0 and camera.roi_height > 0:
-                x, y = camera.roi_x, camera.roi_y
-                w, h = camera.roi_width, camera.roi_height
-                img_h, img_w = frame.shape[:2]
-                x = max(0, min(x, img_w - 1))
-                y = max(0, min(y, img_h - 1))
-                w = min(w, img_w - x)
-                h = min(h, img_h - y)
-                roi_frame = frame[y:y+h, x:x+w]
-            else:
-                roi_frame = frame
-
-            # Save ROI thumbnail (resize to save space)
-            max_dim = 200
-            roi_h, roi_w = roi_frame.shape[:2]
-            if roi_w > max_dim or roi_h > max_dim:
-                scale = max_dim / max(roi_w, roi_h)
-                new_w, new_h = int(roi_w * scale), int(roi_h * scale)
-                roi_frame = cv2.resize(roi_frame, (new_w, new_h))
-
-            # Save to history images folder
-            safe_name = re.sub(r'[^\w\-]', '_', camera.name)
-            camera_img_path = Path(HISTORY_IMAGES_PATH) / safe_name
-            camera_img_path.mkdir(parents=True, exist_ok=True)
-            img_path = camera_img_path / f"{history_id}.jpg"
-            cv2.imwrite(str(img_path), roi_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-            roi_image_id = history_id
-        except Exception as e:
-            logger.debug(f"Failed to save history ROI image: {e}")
-
-        # Store selected provider and all provider results
-        self.history[camera.name].append({
-            'value': result.value,
-            'timestamp': result.timestamp,
-            'confidence': result.confidence,
-            'raw_text': result.raw_text,
-            'error': result.error,
-            'video_description': result.video_description,
-            'roi_image_id': roi_image_id,
-            'ocr_provider': result.selected_provider,
-            'provider_results': result.provider_results,
-            'roi_x': result.roi_x,
-            'roi_y': result.roi_y,
-            'roi_width': result.roi_width,
-            'roi_height': result.roi_height,
-            'roi_rotation': result.roi_rotation
-        })
-
-        # Keep only last MAX_HISTORY entries and clean up old images
-        if len(self.history[camera.name]) > self.MAX_HISTORY:
-            old_entries = self.history[camera.name][:-self.MAX_HISTORY]
-            self.history[camera.name] = self.history[camera.name][-self.MAX_HISTORY:]
-            # Clean up old images
-            safe_name = re.sub(r'[^\w\-]', '_', camera.name)
-            for entry in old_entries:
-                if entry.get('roi_image_id'):
-                    try:
-                        old_img = Path(HISTORY_IMAGES_PATH) / safe_name / f"{entry['roi_image_id']}.jpg"
-                        if old_img.exists():
-                            old_img.unlink()
-                    except:
-                        pass
-
-        # Save history to persistent storage
+        self._add_to_history(
+            camera.name, result, frame,
+            camera.roi_x, camera.roi_y, camera.roi_width, camera.roi_height,
+            view_id=view_id, view_name=view_name
+        )
         self._save_history()
 
         if result.value is not None:
-            logger.info(f"{camera.name}: {result.value} {camera.unit} (confidence: {result.confidence:.1f}%)")
+            logger.info(f"{camera.name}: {result.value} {camera.unit} (confidence: {result.confidence:.1f}%){' [view: ' + (view_name or view_id) + ']' if view_id else ''}")
         else:
             logger.warning(f"{camera.name}: Failed to extract value - {result.error or result.raw_text}")
+
+        return result
+
+    def process_camera(self, camera: CameraConfig):
+        """Process a single camera (supports multi-view patrol mode)."""
+        frame, error = self.capture_frame(camera)
+
+        if error:
+            self.values[camera.name] = ExtractedValue(
+                camera_name=camera.name,
+                value=None,
+                raw_text="",
+                confidence=0,
+                timestamp=time.time(),
+                error=error,
+            )
+            HomeAssistantIntegration.update_sensor(
+                camera_name=camera.name,
+                value=None,
+                raw_text="",
+                confidence=0,
+                unit=camera.unit,
+                error=error
+            )
+            return
+
+        views = getattr(camera, 'views', []) or []
+
+        if views:
+            # Multi-view mode: detect which view is active
+            match = self.view_matcher.match_view(frame, camera.name, views)
+            if not match:
+                logger.debug(f"{camera.name}: No view matched current frame, skipping extraction")
+                return
+
+            matched_view_id = match['view_id']
+            matched_view = None
+            for v in views:
+                if v.get('id') == matched_view_id:
+                    matched_view = v
+                    break
+
+            if not matched_view:
+                return
+
+            view_name = matched_view.get('name', matched_view_id)
+            view_rois = matched_view.get('rois', [])
+            logger.info(f"{camera.name}: Matched view '{view_name}' (confidence: {match['confidence']:.2f}), {len(view_rois)} ROIs")
+
+            if not view_rois:
+                logger.debug(f"{camera.name}: View '{view_name}' has no ROIs defined")
+                return
+
+            # Process each ROI in the matched view
+            for roi_def in view_rois:
+                # Create a temporary camera config with the view's ROI
+                temp_camera = CameraConfig(
+                    name=camera.name,
+                    stream_url=camera.stream_url,
+                    username=camera.username,
+                    password=camera.password,
+                    value_name=roi_def.get('value_name', camera.value_name),
+                    unit=roi_def.get('unit', camera.unit),
+                    roi_x=roi_def.get('x', 0),
+                    roi_y=roi_def.get('y', 0),
+                    roi_width=roi_def.get('width', 0),
+                    roi_height=roi_def.get('height', 0),
+                    roi_rotation=roi_def.get('rotation', 0),
+                    preprocessing=roi_def.get('preprocessing', camera.preprocessing),
+                    min_value=roi_def.get('min_value', camera.min_value),
+                    max_value=roi_def.get('max_value', camera.max_value),
+                    ocr_providers=camera.ocr_providers,
+                    provider_configs=camera.provider_configs,
+                    ai_provider=camera.ai_provider,
+                    ai_api_key=camera.ai_api_key,
+                    ai_api_url=camera.ai_api_url,
+                    ai_model=camera.ai_model,
+                    ai_region=camera.ai_region,
+                    ai_enabled_for_ocr=camera.ai_enabled_for_ocr,
+                    ai_enabled_for_description=camera.ai_enabled_for_description,
+                )
+                self._process_single_extraction(
+                    temp_camera, frame,
+                    view_id=matched_view_id, view_name=view_name
+                )
+        else:
+            # Legacy single-view mode
+            self._process_single_extraction(camera, frame)
 
     def run_loop(self, scan_interval: int):
         """Run the processing loop."""
@@ -3378,6 +3579,7 @@ def add_camera():
         'ocr_providers': data.get('ocr_providers', ['tesseract']),
         'provider_configs': data.get('provider_configs', {}),
         'use_ml_roi_locator': data.get('use_ml_roi_locator', False),
+        'views': data.get('views', []),
     })
 
     if processor.save_config(cameras_list):
@@ -3454,6 +3656,7 @@ def update_camera(name):
                 'ocr_providers': data.get('ocr_providers', getattr(cam, 'ocr_providers', ['tesseract'])),
                 'provider_configs': new_provider_configs,
                 'use_ml_roi_locator': data.get('use_ml_roi_locator', getattr(cam, 'use_ml_roi_locator', False)),
+                'views': data.get('views', getattr(cam, 'views', [])),
             }
             logger.info(f"Saving camera '{name}' with ocr_providers: {updated_cam['ocr_providers']}")
             cameras_list.append(updated_cam)
@@ -4159,6 +4362,289 @@ def train_ocr(camera_name):
     except Exception as e:
         logger.error(f"Error training OCR: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+# === View Management API Endpoints ===
+
+@app.route('/api/cameras/<camera_name>/views', methods=['GET'])
+def get_views(camera_name):
+    """Get all views for a camera."""
+    from urllib.parse import unquote
+    camera_name = unquote(camera_name)
+    if camera_name not in processor.cameras:
+        return jsonify({'error': 'Camera not found'}), 404
+    camera = processor.cameras[camera_name]
+    views = getattr(camera, 'views', []) or []
+    # Add reference image availability info
+    for view in views:
+        ref_images = processor.view_matcher.get_reference_images(camera_name, view.get('id', ''))
+        view['reference_status'] = [img is not None for img in ref_images]
+    return jsonify(views)
+
+
+@app.route('/api/cameras/<camera_name>/views', methods=['POST'])
+def create_view(camera_name):
+    """Create a new view for a camera."""
+    from urllib.parse import unquote
+    camera_name = unquote(camera_name)
+    if camera_name not in processor.cameras:
+        return jsonify({'error': 'Camera not found'}), 404
+
+    data = request.get_json()
+    view_name = data.get('name', 'New View')
+
+    view_id = f"view_{int(time.time() * 1000)}"
+    new_view = {
+        'id': view_id,
+        'name': view_name,
+        'match_threshold': data.get('match_threshold', 0.6),
+        'rois': [],
+    }
+
+    camera = processor.cameras[camera_name]
+    views = list(getattr(camera, 'views', []) or [])
+    views.append(new_view)
+
+    # Save via camera update
+    cameras_list = []
+    for cam_name, cam_obj in processor.cameras.items():
+        cam_dict = asdict(cam_obj)
+        if cam_name == camera_name:
+            cam_dict['views'] = views
+        cameras_list.append(cam_dict)
+
+    if processor.save_config(cameras_list):
+        return jsonify({'success': True, 'view': new_view})
+    return jsonify({'error': 'Failed to save'}), 500
+
+
+@app.route('/api/cameras/<camera_name>/views/<view_id>', methods=['PUT'])
+def update_view(camera_name, view_id):
+    """Update a view's settings."""
+    from urllib.parse import unquote
+    camera_name = unquote(camera_name)
+    if camera_name not in processor.cameras:
+        return jsonify({'error': 'Camera not found'}), 404
+
+    data = request.get_json()
+    camera = processor.cameras[camera_name]
+    views = list(getattr(camera, 'views', []) or [])
+
+    view_found = False
+    for view in views:
+        if view.get('id') == view_id:
+            if 'name' in data:
+                view['name'] = data['name']
+            if 'match_threshold' in data:
+                view['match_threshold'] = data['match_threshold']
+            if 'rois' in data:
+                view['rois'] = data['rois']
+            view_found = True
+            break
+
+    if not view_found:
+        return jsonify({'error': 'View not found'}), 404
+
+    cameras_list = []
+    for cam_name, cam_obj in processor.cameras.items():
+        cam_dict = asdict(cam_obj)
+        if cam_name == camera_name:
+            cam_dict['views'] = views
+        cameras_list.append(cam_dict)
+
+    if processor.save_config(cameras_list):
+        return jsonify({'success': True})
+    return jsonify({'error': 'Failed to save'}), 500
+
+
+@app.route('/api/cameras/<camera_name>/views/<view_id>', methods=['DELETE'])
+def delete_view(camera_name, view_id):
+    """Delete a view and its reference images."""
+    from urllib.parse import unquote
+    camera_name = unquote(camera_name)
+    if camera_name not in processor.cameras:
+        return jsonify({'error': 'Camera not found'}), 404
+
+    camera = processor.cameras[camera_name]
+    views = list(getattr(camera, 'views', []) or [])
+    original_len = len(views)
+    views = [v for v in views if v.get('id') != view_id]
+
+    if len(views) == original_len:
+        return jsonify({'error': 'View not found'}), 404
+
+    # Delete reference images
+    processor.view_matcher.delete_view_images(camera_name, view_id)
+
+    cameras_list = []
+    for cam_name, cam_obj in processor.cameras.items():
+        cam_dict = asdict(cam_obj)
+        if cam_name == camera_name:
+            cam_dict['views'] = views
+        cameras_list.append(cam_dict)
+
+    if processor.save_config(cameras_list):
+        return jsonify({'success': True})
+    return jsonify({'error': 'Failed to save'}), 500
+
+
+@app.route('/api/cameras/<camera_name>/views/<view_id>/reference', methods=['POST'])
+def capture_view_reference(camera_name, view_id):
+    """Capture current frame as a reference image for a view."""
+    from urllib.parse import unquote
+    camera_name = unquote(camera_name)
+    if camera_name not in processor.cameras:
+        return jsonify({'error': 'Camera not found'}), 404
+
+    data = request.get_json()
+    index = data.get('index', 0)
+    if index < 0 or index > 2:
+        return jsonify({'error': 'Index must be 0, 1, or 2'}), 400
+
+    # Check if image data is provided directly (base64)
+    image_data = data.get('image')
+    if image_data:
+        # Decode base64 image
+        img_bytes = base64.b64decode(image_data)
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if frame is None:
+            return jsonify({'error': 'Failed to decode image'}), 400
+    else:
+        # Capture from camera
+        camera = processor.cameras[camera_name]
+        frame, error = processor.capture_frame(camera)
+        if error:
+            return jsonify({'error': f'Failed to capture frame: {error}'}), 500
+
+    filename = processor.view_matcher.save_reference_image(camera_name, view_id, frame, index)
+    return jsonify({'success': True, 'filename': filename, 'index': index})
+
+
+@app.route('/api/cameras/<camera_name>/views/<view_id>/reference/<int:index>', methods=['DELETE'])
+def delete_view_reference(camera_name, view_id, index):
+    """Delete a specific reference image."""
+    from urllib.parse import unquote
+    camera_name = unquote(camera_name)
+    if processor.view_matcher.delete_reference_image(camera_name, view_id, index):
+        return jsonify({'success': True})
+    return jsonify({'error': 'Image not found'}), 404
+
+
+@app.route('/api/cameras/<camera_name>/views/<view_id>/reference/<int:index>/image')
+def get_view_reference_image(camera_name, view_id, index):
+    """Get a reference image for a view."""
+    from urllib.parse import unquote
+    camera_name = unquote(camera_name)
+    ref_images = processor.view_matcher.get_reference_images(camera_name, view_id)
+    if index < 0 or index > 2 or ref_images[index] is None:
+        return jsonify({'error': 'Image not found'}), 404
+    with open(ref_images[index], 'rb') as f:
+        return Response(f.read(), mimetype='image/png')
+
+
+@app.route('/api/cameras/<camera_name>/views/<view_id>/match', methods=['POST'])
+def test_view_match(camera_name, view_id):
+    """Test if current frame matches a specific view."""
+    from urllib.parse import unquote
+    camera_name = unquote(camera_name)
+    if camera_name not in processor.cameras:
+        return jsonify({'error': 'Camera not found'}), 404
+
+    data = request.get_json() or {}
+    image_data = data.get('image')
+
+    if image_data:
+        img_bytes = base64.b64decode(image_data)
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if frame is None:
+            return jsonify({'error': 'Failed to decode image'}), 400
+    else:
+        camera = processor.cameras[camera_name]
+        frame, error = processor.capture_frame(camera)
+        if error:
+            return jsonify({'error': f'Failed to capture: {error}'}), 500
+
+    result = processor.view_matcher.test_match(frame, camera_name, view_id)
+    return jsonify(result)
+
+
+@app.route('/api/cameras/<camera_name>/views/match-current', methods=['POST'])
+def match_current_view(camera_name):
+    """Test which view matches the current frame."""
+    from urllib.parse import unquote
+    camera_name = unquote(camera_name)
+    if camera_name not in processor.cameras:
+        return jsonify({'error': 'Camera not found'}), 404
+
+    camera = processor.cameras[camera_name]
+    views = getattr(camera, 'views', []) or []
+
+    data = request.get_json() or {}
+    image_data = data.get('image')
+
+    if image_data:
+        img_bytes = base64.b64decode(image_data)
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if frame is None:
+            return jsonify({'error': 'Failed to decode image'}), 400
+    else:
+        frame, error = processor.capture_frame(camera)
+        if error:
+            return jsonify({'error': f'Failed to capture: {error}'}), 500
+
+    match = processor.view_matcher.match_view(frame, camera_name, views)
+    if match:
+        # Find view name
+        for v in views:
+            if v.get('id') == match['view_id']:
+                match['view_name'] = v.get('name', 'Unknown')
+                break
+        return jsonify({'matched': True, **match})
+    return jsonify({'matched': False})
+
+
+# === Bulk Delete History ===
+
+@app.route('/api/history/bulk-delete', methods=['POST'])
+def bulk_delete_history():
+    """Bulk delete history entries by timestamps."""
+    data = request.get_json()
+    camera_name = data.get('camera_name')
+    timestamps = data.get('timestamps', [])
+
+    if not camera_name or not timestamps:
+        return jsonify({'error': 'camera_name and timestamps required'}), 400
+
+    if camera_name not in processor.history:
+        return jsonify({'error': 'No history for camera'}), 404
+
+    timestamps_set = set(timestamps)
+    original_count = len(processor.history[camera_name])
+
+    # Remove matching entries and clean up images
+    remaining = []
+    safe_name = re.sub(r'[^\w\-]', '_', camera_name)
+    for entry in processor.history[camera_name]:
+        if entry.get('timestamp') in timestamps_set:
+            # Clean up image
+            if entry.get('roi_image_id'):
+                try:
+                    img_path = Path(HISTORY_IMAGES_PATH) / safe_name / f"{entry['roi_image_id']}.jpg"
+                    if img_path.exists():
+                        img_path.unlink()
+                except Exception:
+                    pass
+        else:
+            remaining.append(entry)
+
+    deleted_count = original_count - len(remaining)
+    processor.history[camera_name] = remaining
+    processor._save_history()
+
+    return jsonify({'success': True, 'deleted': deleted_count})
 
 
 @app.route('/api/ml/status', methods=['GET'])

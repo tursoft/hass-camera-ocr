@@ -1433,6 +1433,13 @@
                                 </svg>
                                 Edit
                             </button>
+                            <button class="btn btn-secondary" onclick="openOCRConfigModal()" title="Configure OCR Providers">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                    <path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"></path>
+                                </svg>
+                                OCR Config
+                            </button>
                         </div>
                     </div>
 
@@ -1447,10 +1454,6 @@
                                     <p>Select a camera and click Refresh to load preview</p>
                                 </div>
                                 <div class="zoom-controls" id="zoom-controls" style="display: none;">
-                                    <button class="zoom-btn" onclick="zoomOut()" title="Zoom Out">−</button>
-                                    <span class="zoom-level" id="zoom-level">100%</span>
-                                    <button class="zoom-btn" onclick="zoomIn()" title="Zoom In">+</button>
-                                    <button class="zoom-btn" onclick="resetZoom()" title="Reset Zoom">⟲</button>
                                     <div class="ptz-controls">
                                         <button class="zoom-btn ptz-btn" onclick="ptzMove('up')" title="Tilt Up">▲</button>
                                         <div class="ptz-row">
@@ -1525,13 +1528,6 @@
                                 <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
                                     <button class="btn btn-secondary btn-sm" onclick="clearROI()">Clear</button>
                                     <button class="btn btn-primary btn-sm" onclick="testExtraction()">Test Extract</button>
-                                    <button class="btn btn-secondary btn-sm" onclick="openOCRConfigModal()" title="Configure OCR Providers">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                                            <circle cx="12" cy="12" r="3"></circle>
-                                            <path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"></path>
-                                        </svg>
-                                        OCR Config
-                                    </button>
                                 </div>
                             </div>
 
@@ -1564,6 +1560,46 @@
                                     <input type="text" id="template-name-input" class="form-input" placeholder="Template name">
                                 </div>
                                 <button class="btn btn-success btn-sm" onclick="saveTemplate()">Save Template</button>
+                            </div>
+
+                            <!-- Views Management -->
+                            <div class="card" style="margin: 0;" id="views-card">
+                                <div class="card-title" style="justify-content: space-between;">
+                                    <span>Patrol Views</span>
+                                    <button class="btn btn-primary btn-sm" onclick="addView()">+ Add View</button>
+                                </div>
+                                <p style="font-size: 13px; color: var(--text-3); margin-bottom: 12px;">
+                                    Define views for patrol cameras. Each view has reference images for matching and its own ROIs.
+                                </p>
+                                <div id="views-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                                <div id="view-detail-panel" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                        <input type="text" id="view-name-input" class="form-input" placeholder="View name" style="flex: 1;">
+                                        <button class="btn btn-sm btn-secondary" onclick="saveViewName()">Rename</button>
+                                    </div>
+                                    <div style="margin-bottom: 8px;">
+                                        <label class="form-label">Match Threshold</label>
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <input type="range" id="view-threshold" min="0.3" max="0.95" step="0.05" value="0.6"
+                                                   style="flex: 1;" onchange="updateViewThreshold(this.value)">
+                                            <span id="view-threshold-value" style="min-width: 40px; text-align: center;">0.60</span>
+                                        </div>
+                                    </div>
+                                    <div style="margin-bottom: 8px;">
+                                        <label class="form-label">Reference Images (3 max)</label>
+                                        <div id="view-ref-images" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;"></div>
+                                    </div>
+                                    <div style="margin-bottom: 8px;">
+                                        <label class="form-label">View ROIs</label>
+                                        <div id="view-rois-list" style="display: flex; flex-direction: column; gap: 4px;"></div>
+                                        <button class="btn btn-sm btn-success" onclick="addROIToView()" style="margin-top: 8px;">+ Add Current ROI</button>
+                                    </div>
+                                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                                        <button class="btn btn-sm btn-primary" onclick="testViewMatch()">Test Match</button>
+                                        <button class="btn btn-sm" onclick="matchCurrentView()" style="background: var(--warning); color: #000;">Detect View</button>
+                                        <button class="btn btn-sm btn-secondary" onclick="deleteSelectedView()" style="margin-left: auto; color: var(--error);">Delete View</button>
+                                    </div>
+                                </div>
                             </div>
 
                         </div>
@@ -1978,7 +2014,6 @@
             loadData();
             startLiveUpdates();
             setupCanvas();
-            setupZoomWheel();
         });
 
         function startLiveUpdates() {
@@ -2015,40 +2050,7 @@
             }
         }
 
-        // Zoom & PTZ Functions
-        function setupZoomWheel() {
-            const frame = document.getElementById('preview-frame');
-            frame.addEventListener('wheel', (e) => {
-                if (!previewImage) return;
-
-                // Don't zoom when scrolling on buttons or controls
-                if (e.target.closest('button, .btn, input, select, .zoom-controls, .ptz-controls')) {
-                    return;
-                }
-
-                e.preventDefault();
-                if (e.deltaY < 0) {
-                    zoomIn();
-                } else {
-                    zoomOut();
-                }
-            }, { passive: false });
-        }
-
-        function zoomIn() {
-            if (zoomLevel < 4) {
-                zoomLevel = Math.min(4, zoomLevel + 0.25);
-                applyZoom();
-            }
-        }
-
-        function zoomOut() {
-            if (zoomLevel > 0.25) {
-                zoomLevel = Math.max(0.25, zoomLevel - 0.25);
-                applyZoom();
-            }
-        }
-
+        // PTZ Functions
         function resetZoom() {
             zoomLevel = 1;
             applyZoom();
@@ -2108,7 +2110,8 @@
             imageScale = zoomLevel;
 
             // Update zoom level display
-            document.getElementById('zoom-level').textContent = Math.round(zoomLevel * 100) + '%';
+            const zoomLevelEl = document.getElementById('zoom-level');
+            if (zoomLevelEl) zoomLevelEl.textContent = Math.round(zoomLevel * 100) + '%';
 
             drawROI();
         }
@@ -2160,6 +2163,8 @@
         let historyData = {};
         let selectedHistoryCamera = null;
         let historyViewMode = 'table';  // 'table', 'card', 'chart'
+        let selectedHistoryView = 'all';  // 'all' or a view_id
+        let selectedHistoryTimestamps = new Set();  // For bulk delete
 
         async function loadHistory() {
             try {
@@ -2208,13 +2213,42 @@
             // Auto-select first camera if none selected
             if (!selectedHistoryCamera || !historyData[selectedHistoryCamera]) {
                 selectedHistoryCamera = cameraNames[0];
+                selectedHistoryView = 'all';
             }
+
+            // Clear selection when re-rendering
+            selectedHistoryTimestamps.clear();
 
             // Render tabs for each camera
             const tabs = cameraNames.map(name => `
                 <button class="history-tab ${name === selectedHistoryCamera ? 'active' : ''}"
                         onclick="selectHistoryCamera('${name}')">${name}</button>
             `).join('');
+
+            // View sub-tabs (for cameras with views)
+            const history = historyData[selectedHistoryCamera] || [];
+            const camera = cameras[selectedHistoryCamera];
+            const unit = camera?.unit || '';
+
+            // Detect unique views in history
+            const viewIds = new Set();
+            history.forEach(e => { if (e.view_id) viewIds.add(e.view_id); });
+            let viewTabsHtml = '';
+            if (viewIds.size > 0) {
+                const viewTabs = [`<button class="history-tab ${selectedHistoryView === 'all' ? 'active' : ''}" onclick="selectHistoryView('all')" style="font-size: 11px;">All</button>`];
+                viewIds.forEach(vid => {
+                    const viewEntry = history.find(e => e.view_id === vid);
+                    const viewName = viewEntry?.view_name || vid;
+                    viewTabs.push(`<button class="history-tab ${selectedHistoryView === vid ? 'active' : ''}" onclick="selectHistoryView('${vid}')" style="font-size: 11px;">${viewName}</button>`);
+                });
+                viewTabsHtml = `<div class="history-tabs" style="margin-bottom: 0; margin-top: 4px;">${viewTabs.join('')}</div>`;
+            }
+
+            // Filter by selected view
+            let filteredHistory = history;
+            if (selectedHistoryView !== 'all') {
+                filteredHistory = history.filter(e => e.view_id === selectedHistoryView);
+            }
 
             // View mode toggle
             const viewModeHtml = `
@@ -2245,35 +2279,45 @@
                 </div>
             `;
 
-            const history = historyData[selectedHistoryCamera] || [];
-            const camera = cameras[selectedHistoryCamera];
-            const unit = camera?.unit || '';
-
             let contentHtml = '';
-            if (history.length > 0) {
+            if (filteredHistory.length > 0) {
                 if (historyViewMode === 'table') {
-                    contentHtml = renderHistoryTable(history, unit);
+                    contentHtml = renderHistoryTable(filteredHistory, unit);
                 } else if (historyViewMode === 'card') {
-                    contentHtml = renderHistoryCards(history, unit);
+                    contentHtml = renderHistoryCards(filteredHistory, unit);
                 } else if (historyViewMode === 'chart') {
-                    contentHtml = renderHistoryChart(history, unit);
+                    contentHtml = renderHistoryChart(filteredHistory, unit);
                 }
             } else {
                 contentHtml = '<p style="color: var(--text-3);">No readings yet for this camera</p>';
             }
+
+            // Bulk delete bar
+            const bulkDeleteHtml = `<div id="bulk-delete-bar" style="display: none; padding: 8px 12px; background: var(--error); border-radius: 6px; margin-bottom: 8px; display: none; align-items: center; gap: 8px;">
+                <span id="bulk-delete-count" style="color: white; font-size: 13px;">0 selected</span>
+                <button class="btn btn-sm" onclick="bulkDeleteHistory()" style="background: white; color: var(--error); margin-left: auto;">Delete Selected</button>
+                <button class="btn btn-sm" onclick="clearHistorySelection()" style="background: rgba(255,255,255,0.2); color: white;">Cancel</button>
+            </div>`;
 
             container.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
                     <div class="history-tabs" style="margin-bottom: 0;">${tabs}</div>
                     ${viewModeHtml}
                 </div>
+                ${viewTabsHtml}
+                ${bulkDeleteHtml}
                 ${contentHtml}
             `;
 
             // If chart mode, render the chart
-            if (historyViewMode === 'chart' && history.length > 0) {
-                renderHistoryChartCanvas(history, unit);
+            if (historyViewMode === 'chart' && filteredHistory.length > 0) {
+                renderHistoryChartCanvas(filteredHistory, unit);
             }
+        }
+
+        function selectHistoryView(viewId) {
+            selectedHistoryView = viewId;
+            renderHistory();
         }
 
         function renderHistoryTable(history, unit) {
@@ -2297,28 +2341,38 @@
                     ? `<img class="history-thumbnail" src="api/history-image/${encodeURIComponent(selectedHistoryCamera)}/${entry.roi_image_id}" onerror="this.outerHTML='<div class=\\'history-thumbnail-placeholder\\'>N/A</div>'">`
                     : '<div class="history-thumbnail-placeholder">N/A</div>';
 
+                // View name column
+                const viewCol = entry.view_name ? `<td style="font-size: 11px;">${entry.view_name}</td>` : '';
+
                 return `
-                    <tr onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')" style="cursor: pointer;">
-                        <td class="order-cell">${index + 1}</td>
-                        <td style="width: 60px;">${thumbnailHtml}</td>
-                        <td>${time}</td>
-                        <td class="value-cell">${valueDisplay}</td>
-                        <td>${confidenceDisplay}</td>
-                        <td>${entry.ocr_provider || 'tesseract'}</td>
+                    <tr style="cursor: pointer;">
+                        <td onclick="event.stopPropagation()"><input type="checkbox" class="history-checkbox" data-ts="${entry.timestamp}" onchange="toggleHistorySelect(${entry.timestamp}, this.checked)"></td>
+                        <td class="order-cell" onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')">${index + 1}</td>
+                        <td style="width: 60px;" onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')">${thumbnailHtml}</td>
+                        <td onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')">${time}</td>
+                        <td class="value-cell" onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')">${valueDisplay}</td>
+                        <td onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')">${confidenceDisplay}</td>
+                        <td onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')">${entry.ocr_provider || 'tesseract'}</td>
+                        ${viewCol}
                     </tr>
                 `;
             }).join('');
+
+            // Check if any entry has view info
+            const hasViews = history.some(e => e.view_name);
 
             return `
                 <table class="history-table">
                     <thead>
                         <tr>
+                            <th style="width: 30px;"><input type="checkbox" onchange="toggleAllHistorySelect(this.checked)"></th>
                             <th class="order-header">#</th>
                             <th>ROI</th>
                             <th>Time</th>
                             <th class="value-header">Value</th>
                             <th>Confidence</th>
                             <th>Provider</th>
+                            ${hasViews ? '<th>View</th>' : ''}
                         </tr>
                     </thead>
                     <tbody>${rows}</tbody>
@@ -2339,15 +2393,21 @@
                     : '';
 
                 return `
-                    <div style="background: var(--bg-3); border-radius: 8px; padding: 12px; cursor: pointer;" onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')">
-                        ${thumbnailHtml}
-                        <div style="font-size: 24px; font-weight: 700; color: ${isLowConfidence ? 'var(--error)' : 'var(--primary)'}; margin: 8px 0;">
-                            ${entry.value !== null ? entry.value : '--'} ${unit}
+                    <div style="background: var(--bg-3); border-radius: 8px; padding: 12px; cursor: pointer; position: relative;">
+                        <div style="position: absolute; top: 8px; right: 8px;" onclick="event.stopPropagation()">
+                            <input type="checkbox" class="history-checkbox" data-ts="${entry.timestamp}" onchange="toggleHistorySelect(${entry.timestamp}, this.checked)">
                         </div>
-                        <div style="font-size: 12px; color: var(--text-3);">${time}</div>
-                        <div style="margin-top: 8px;">
-                            <div class="confidence-bar" style="width: 100%;"><div class="confidence-bar-fill ${barClass}" style="width: ${confidence}%"></div></div>
-                            <div style="font-size: 11px; color: var(--text-3); margin-top: 4px;">${confidence.toFixed(0)}% • ${entry.ocr_provider || 'tesseract'}</div>
+                        <div onclick="showHistoryDetail(${JSON.stringify(entry).replace(/"/g, '&quot;')}, '${unit}')">
+                            ${thumbnailHtml}
+                            <div style="font-size: 24px; font-weight: 700; color: ${isLowConfidence ? 'var(--error)' : 'var(--primary)'}; margin: 8px 0;">
+                                ${entry.value !== null ? entry.value : '--'} ${unit}
+                            </div>
+                            <div style="font-size: 12px; color: var(--text-3);">${time}</div>
+                            ${entry.view_name ? `<div style="font-size: 11px; color: var(--primary); margin-top: 2px;">${entry.view_name}</div>` : ''}
+                            <div style="margin-top: 8px;">
+                                <div class="confidence-bar" style="width: 100%;"><div class="confidence-bar-fill ${barClass}" style="width: ${confidence}%"></div></div>
+                                <div style="font-size: 11px; color: var(--text-3); margin-top: 4px;">${confidence.toFixed(0)}% • ${entry.ocr_provider || 'tesseract'}</div>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -2697,7 +2757,78 @@
 
         function selectHistoryCamera(name) {
             selectedHistoryCamera = name;
+            selectedHistoryView = 'all';
             renderHistory();
+        }
+
+        function toggleHistorySelect(timestamp, checked) {
+            if (checked) {
+                selectedHistoryTimestamps.add(timestamp);
+            } else {
+                selectedHistoryTimestamps.delete(timestamp);
+            }
+            updateBulkDeleteBar();
+        }
+
+        function toggleAllHistorySelect(checked) {
+            const checkboxes = document.querySelectorAll('.history-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = checked;
+                const ts = parseFloat(cb.dataset.ts);
+                if (checked) {
+                    selectedHistoryTimestamps.add(ts);
+                } else {
+                    selectedHistoryTimestamps.delete(ts);
+                }
+            });
+            updateBulkDeleteBar();
+        }
+
+        function updateBulkDeleteBar() {
+            const bar = document.getElementById('bulk-delete-bar');
+            if (!bar) return;
+            if (selectedHistoryTimestamps.size > 0) {
+                bar.style.display = 'flex';
+                document.getElementById('bulk-delete-count').textContent = `${selectedHistoryTimestamps.size} selected`;
+            } else {
+                bar.style.display = 'none';
+            }
+        }
+
+        function clearHistorySelection() {
+            selectedHistoryTimestamps.clear();
+            const checkboxes = document.querySelectorAll('.history-checkbox');
+            checkboxes.forEach(cb => cb.checked = false);
+            updateBulkDeleteBar();
+        }
+
+        async function bulkDeleteHistory() {
+            if (selectedHistoryTimestamps.size === 0) return;
+            if (!confirm(`Delete ${selectedHistoryTimestamps.size} history entries?`)) return;
+
+            try {
+                const res = await fetch('api/history/bulk-delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        camera_name: selectedHistoryCamera,
+                        timestamps: Array.from(selectedHistoryTimestamps)
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    toast(`Deleted ${data.deleted} entries`, 'success');
+                    selectedHistoryTimestamps.clear();
+                    // Reload history
+                    const histRes = await fetch('api/history');
+                    historyData = await histRes.json();
+                    renderHistory();
+                } else {
+                    toast(data.error || 'Failed to delete', 'error');
+                }
+            } catch (e) {
+                toast('Failed to delete history entries', 'error');
+            }
         }
 
         async function loadTemplates() {
@@ -3184,6 +3315,7 @@
 
             await refreshLivePreview();
             loadSavedROIs();
+            loadViews();
         }
 
         async function refreshLivePreview() {
@@ -3459,7 +3591,8 @@
 
             // Show zoom controls
             document.getElementById('zoom-controls').style.display = 'flex';
-            document.getElementById('zoom-level').textContent = Math.round(zoomLevel * 100) + '%';
+            const zoomLevelEl = document.getElementById('zoom-level');
+            if (zoomLevelEl) zoomLevelEl.textContent = Math.round(zoomLevel * 100) + '%';
 
             imageScale = zoomLevel;
         }
@@ -4831,6 +4964,378 @@
                 }
             } catch (e) {
                 toast('Failed to delete template', 'error');
+            }
+        }
+
+        // === Views Management ===
+        let cameraViews = [];
+        let selectedViewId = null;
+
+        async function loadViews() {
+            const cameraName = document.getElementById('live-camera-select').value;
+            if (!cameraName) {
+                cameraViews = [];
+                renderViewsList();
+                return;
+            }
+            try {
+                const res = await fetch(`api/cameras/${encodeURIComponent(cameraName)}/views`);
+                cameraViews = await res.json();
+            } catch (e) {
+                cameraViews = [];
+            }
+            renderViewsList();
+        }
+
+        function renderViewsList() {
+            const container = document.getElementById('views-list');
+            if (!cameraViews || cameraViews.length === 0) {
+                container.innerHTML = '<p style="font-size: 12px; color: var(--text-3);">No views defined. Add a view for patrol camera support.</p>';
+                document.getElementById('view-detail-panel').style.display = 'none';
+                selectedViewId = null;
+                return;
+            }
+
+            container.innerHTML = cameraViews.map(v => {
+                const refCount = (v.reference_status || []).filter(Boolean).length;
+                const roiCount = (v.rois || []).length;
+                const isSelected = v.id === selectedViewId;
+                return `<div class="saved-roi-item ${isSelected ? 'selected' : ''}" style="padding: 8px; border-radius: 6px; cursor: pointer; border: 1px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}; background: ${isSelected ? 'var(--bg-3)' : 'var(--bg-2)'};" onclick="selectView('${v.id}')">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-weight: 500;">${v.name || v.id}</span>
+                        <span style="font-size: 11px; color: var(--text-3);">${refCount}/3 refs, ${roiCount} ROIs</span>
+                    </div>
+                </div>`;
+            }).join('');
+
+            // Show detail panel if a view is selected
+            if (selectedViewId) {
+                showViewDetail(selectedViewId);
+            }
+        }
+
+        function selectView(viewId) {
+            selectedViewId = viewId;
+            renderViewsList();
+            showViewDetail(viewId);
+        }
+
+        function showViewDetail(viewId) {
+            const view = cameraViews.find(v => v.id === viewId);
+            if (!view) {
+                document.getElementById('view-detail-panel').style.display = 'none';
+                return;
+            }
+
+            document.getElementById('view-detail-panel').style.display = 'block';
+            document.getElementById('view-name-input').value = view.name || '';
+            document.getElementById('view-threshold').value = view.match_threshold || 0.6;
+            document.getElementById('view-threshold-value').textContent = (view.match_threshold || 0.6).toFixed(2);
+
+            const cameraName = document.getElementById('live-camera-select').value;
+
+            // Render reference images
+            const refContainer = document.getElementById('view-ref-images');
+            const refStatus = view.reference_status || [false, false, false];
+            refContainer.innerHTML = [0, 1, 2].map(i => {
+                const hasImage = refStatus[i];
+                return `<div style="border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--bg-3); text-align: center; min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                    ${hasImage
+                        ? `<img src="api/cameras/${encodeURIComponent(cameraName)}/views/${viewId}/reference/${i}/image" style="width: 100%; height: 60px; object-fit: cover;" onerror="this.outerHTML='<span style=\\'font-size:11px;color:var(--text-3)\\'>Error</span>'">`
+                        : '<span style="font-size: 11px; color: var(--text-3);">Empty</span>'}
+                    <div style="display: flex; gap: 2px; padding: 4px;">
+                        <button class="btn btn-sm btn-primary" onclick="captureViewRef('${viewId}', ${i})" style="font-size: 10px; padding: 2px 6px;">Capture</button>
+                        ${hasImage ? `<button class="btn btn-sm btn-secondary" onclick="deleteViewRef('${viewId}', ${i})" style="font-size: 10px; padding: 2px 6px; color: var(--error);">X</button>` : ''}
+                    </div>
+                </div>`;
+            }).join('');
+
+            // Render view ROIs
+            const roisContainer = document.getElementById('view-rois-list');
+            const rois = view.rois || [];
+            if (rois.length === 0) {
+                roisContainer.innerHTML = '<p style="font-size: 12px; color: var(--text-3);">No ROIs. Draw an ROI on the preview and click "Add Current ROI".</p>';
+            } else {
+                roisContainer.innerHTML = rois.map((roi, idx) => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: var(--bg-3); border-radius: 4px; font-size: 12px;">
+                        <span>${roi.value_name || 'ROI ' + (idx + 1)} (${roi.x},${roi.y} ${roi.width}x${roi.height}) ${roi.unit || ''}</span>
+                        <button class="btn btn-sm btn-secondary" onclick="removeROIFromView(${idx})" style="font-size: 10px; padding: 2px 6px; color: var(--error);">X</button>
+                    </div>
+                `).join('');
+            }
+        }
+
+        async function addView() {
+            const cameraName = document.getElementById('live-camera-select').value;
+            if (!cameraName) {
+                toast('Select a camera first', 'error');
+                return;
+            }
+            const name = prompt('Enter view name (e.g., "Boiler Temperature"):');
+            if (!name) return;
+
+            try {
+                const res = await fetch(`api/cameras/${encodeURIComponent(cameraName)}/views`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    toast('View added', 'success');
+                    selectedViewId = data.view.id;
+                    await loadViews();
+                } else {
+                    toast(data.error || 'Failed to add view', 'error');
+                }
+            } catch (e) {
+                toast('Failed to add view', 'error');
+            }
+        }
+
+        async function saveViewName() {
+            if (!selectedViewId) return;
+            const cameraName = document.getElementById('live-camera-select').value;
+            const newName = document.getElementById('view-name-input').value.trim();
+            if (!newName) return;
+
+            try {
+                const res = await fetch(`api/cameras/${encodeURIComponent(cameraName)}/views/${selectedViewId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName })
+                });
+                if (res.ok) {
+                    toast('View renamed', 'success');
+                    await loadViews();
+                }
+            } catch (e) {
+                toast('Failed to rename view', 'error');
+            }
+        }
+
+        async function updateViewThreshold(value) {
+            document.getElementById('view-threshold-value').textContent = parseFloat(value).toFixed(2);
+            if (!selectedViewId) return;
+            const cameraName = document.getElementById('live-camera-select').value;
+            try {
+                await fetch(`api/cameras/${encodeURIComponent(cameraName)}/views/${selectedViewId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ match_threshold: parseFloat(value) })
+                });
+            } catch (e) { /* silent */ }
+        }
+
+        async function captureViewRef(viewId, index) {
+            const cameraName = document.getElementById('live-camera-select').value;
+            if (!cameraName) return;
+
+            // Use current preview image if available
+            let imageData = null;
+            const canvas = document.getElementById('preview-canvas');
+            if (canvas && canvas.style.display !== 'none' && previewImage) {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = previewImage.naturalWidth || previewImage.width;
+                tempCanvas.height = previewImage.naturalHeight || previewImage.height;
+                const ctx = tempCanvas.getContext('2d');
+                ctx.drawImage(previewImage, 0, 0);
+                imageData = tempCanvas.toDataURL('image/png').split(',')[1];
+            }
+
+            try {
+                const body = { index };
+                if (imageData) body.image = imageData;
+                const res = await fetch(`api/cameras/${encodeURIComponent(cameraName)}/views/${viewId}/reference`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    toast(`Reference image ${index + 1} captured`, 'success');
+                    await loadViews();
+                } else {
+                    toast(data.error || 'Failed to capture', 'error');
+                }
+            } catch (e) {
+                toast('Failed to capture reference', 'error');
+            }
+        }
+
+        async function deleteViewRef(viewId, index) {
+            const cameraName = document.getElementById('live-camera-select').value;
+            try {
+                const res = await fetch(`api/cameras/${encodeURIComponent(cameraName)}/views/${viewId}/reference/${index}`, {
+                    method: 'DELETE'
+                });
+                if (res.ok) {
+                    toast('Reference image deleted', 'success');
+                    await loadViews();
+                }
+            } catch (e) {
+                toast('Failed to delete reference', 'error');
+            }
+        }
+
+        async function addROIToView() {
+            if (!selectedViewId) {
+                toast('Select a view first', 'error');
+                return;
+            }
+            if (currentROI.width <= 0 || currentROI.height <= 0) {
+                toast('Draw an ROI on the preview first', 'error');
+                return;
+            }
+            const valueName = prompt('Value name for this ROI (e.g., "Temperature"):', 'Value');
+            if (valueName === null) return;
+            const unit = prompt('Unit (e.g., "°C"):', '');
+
+            const cameraName = document.getElementById('live-camera-select').value;
+            const view = cameraViews.find(v => v.id === selectedViewId);
+            if (!view) return;
+
+            const rois = [...(view.rois || [])];
+            rois.push({
+                x: currentROI.x,
+                y: currentROI.y,
+                width: currentROI.width,
+                height: currentROI.height,
+                rotation: parseInt(document.getElementById('roi-rotation-input').value) || 0,
+                value_name: valueName || 'Value',
+                unit: unit || ''
+            });
+
+            try {
+                const res = await fetch(`api/cameras/${encodeURIComponent(cameraName)}/views/${selectedViewId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rois })
+                });
+                if (res.ok) {
+                    toast('ROI added to view', 'success');
+                    await loadViews();
+                }
+            } catch (e) {
+                toast('Failed to add ROI', 'error');
+            }
+        }
+
+        async function removeROIFromView(roiIndex) {
+            if (!selectedViewId) return;
+            const cameraName = document.getElementById('live-camera-select').value;
+            const view = cameraViews.find(v => v.id === selectedViewId);
+            if (!view) return;
+
+            const rois = [...(view.rois || [])];
+            rois.splice(roiIndex, 1);
+
+            try {
+                const res = await fetch(`api/cameras/${encodeURIComponent(cameraName)}/views/${selectedViewId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rois })
+                });
+                if (res.ok) {
+                    toast('ROI removed', 'success');
+                    await loadViews();
+                }
+            } catch (e) {
+                toast('Failed to remove ROI', 'error');
+            }
+        }
+
+        async function testViewMatch() {
+            if (!selectedViewId) {
+                toast('Select a view first', 'error');
+                return;
+            }
+            const cameraName = document.getElementById('live-camera-select').value;
+            if (!cameraName) return;
+
+            // Get current preview image
+            let imageData = null;
+            if (previewImage) {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = previewImage.naturalWidth || previewImage.width;
+                tempCanvas.height = previewImage.naturalHeight || previewImage.height;
+                const ctx = tempCanvas.getContext('2d');
+                ctx.drawImage(previewImage, 0, 0);
+                imageData = tempCanvas.toDataURL('image/png').split(',')[1];
+            }
+
+            try {
+                const body = imageData ? { image: imageData } : {};
+                const res = await fetch(`api/cameras/${encodeURIComponent(cameraName)}/views/${selectedViewId}/match`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                const scores = data.scores || [];
+                const details = scores.map(s => `Ref ${s.index + 1}: ${s.has_image ? (s.score * 100).toFixed(1) + '%' : 'N/A'}`).join(', ');
+                const threshold = document.getElementById('view-threshold').value;
+                const matched = data.best_score >= parseFloat(threshold);
+                toast(`Match: ${matched ? 'YES' : 'NO'} (best: ${(data.best_score * 100).toFixed(1)}%, threshold: ${(threshold * 100).toFixed(0)}%) | ${details}`, matched ? 'success' : 'warning');
+            } catch (e) {
+                toast('Failed to test match', 'error');
+            }
+        }
+
+        async function matchCurrentView() {
+            const cameraName = document.getElementById('live-camera-select').value;
+            if (!cameraName) {
+                toast('Select a camera first', 'error');
+                return;
+            }
+
+            let imageData = null;
+            if (previewImage) {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = previewImage.naturalWidth || previewImage.width;
+                tempCanvas.height = previewImage.naturalHeight || previewImage.height;
+                const ctx = tempCanvas.getContext('2d');
+                ctx.drawImage(previewImage, 0, 0);
+                imageData = tempCanvas.toDataURL('image/png').split(',')[1];
+            }
+
+            try {
+                const body = imageData ? { image: imageData } : {};
+                const res = await fetch(`api/cameras/${encodeURIComponent(cameraName)}/views/match-current`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.matched) {
+                    toast(`Detected view: "${data.view_name}" (confidence: ${(data.confidence * 100).toFixed(1)}%)`, 'success');
+                    selectedViewId = data.view_id;
+                    renderViewsList();
+                } else {
+                    toast('No view matched the current frame', 'warning');
+                }
+            } catch (e) {
+                toast('Failed to detect view', 'error');
+            }
+        }
+
+        async function deleteSelectedView() {
+            if (!selectedViewId) return;
+            const view = cameraViews.find(v => v.id === selectedViewId);
+            if (!confirm(`Delete view "${view?.name || selectedViewId}"? This will remove all reference images and ROIs.`)) return;
+
+            const cameraName = document.getElementById('live-camera-select').value;
+            try {
+                const res = await fetch(`api/cameras/${encodeURIComponent(cameraName)}/views/${selectedViewId}`, {
+                    method: 'DELETE'
+                });
+                if (res.ok) {
+                    toast('View deleted', 'success');
+                    selectedViewId = null;
+                    await loadViews();
+                }
+            } catch (e) {
+                toast('Failed to delete view', 'error');
             }
         }
 

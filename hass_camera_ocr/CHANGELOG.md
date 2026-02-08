@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.2.48] - 2026
+
+### Added
+- **Multi-view patrol camera support**: Define multiple views per camera for patrol/rotating cameras. Each view has up to 3 reference screenshots for frame matching, its own ROI list, and per-view value extraction
+- **ViewMatcher engine**: Automatic view detection using normalized cross-correlation against reference images. Only extracts values when a known view is matched
+- **Views management UI**: New "Patrol Views" panel in Live Preview sidebar with view creation, reference image capture, ROI assignment, match testing, and view detection
+- **Per-view history**: History tab shows view sub-tabs to filter readings by view. Each history entry shows which view it was extracted from
+- **Bulk delete in history**: Checkboxes on history table and card views with "Select All" and "Delete Selected" controls for batch deletion
+- **View API endpoints**: Full CRUD for views, reference image capture/delete, view matching, and bulk history deletion
+
+### Changed
+- **OCR Config button moved**: Now appears next to the Edit button in the Live Preview camera controls bar for easier access
+- **Zoom controls removed**: Removed zoom in/out buttons and mouse wheel zoom from live preview (PTZ camera controls preserved)
+
 ## [1.2.47] - 2026
 
 ### Improved
