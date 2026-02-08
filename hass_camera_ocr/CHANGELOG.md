@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.47] - 2026
+
+### Improved
+- **Range-aware OCR result selection**: When camera has min/max value configured (e.g., 10-80 for boiler temperature), the best result selection now prefers values within the expected range over higher-confidence out-of-range values. Previously a misread "1" at 95% confidence would win over correct "41" at 60% - now "41" is preferred because it's in range.
+- Applies to both live extraction and Test Extract
+
 ## [1.2.46] - 2026
 
 ### Improved

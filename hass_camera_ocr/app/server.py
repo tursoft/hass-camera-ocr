@@ -2762,24 +2762,65 @@ class CameraProcessor:
             logger.error(f"Provider {provider} error: {e}")
             return ProviderResult(provider=provider, value=None, raw_text='', confidence=0, error=str(e))
 
-    def _select_best_result(self, results: list) -> tuple:
+    def _is_value_in_range(self, value_str, min_val, max_val):
+        """Check if a value string falls within the expected range."""
+        if value_str is None:
+            return False
+        try:
+            v = abs(float(value_str))
+            if min_val is not None and v < min_val:
+                return False
+            if max_val is not None and v > max_val:
+                return False
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    def _select_best_result(self, results: list, camera=None) -> tuple:
         """Select the best result from multiple provider results.
+
+        Prefers results within the camera's expected value range (min_value/max_value).
+        Falls back to highest confidence if no in-range results exist.
 
         Args:
             results: List of ProviderResult objects
+            camera: Optional CameraConfig with min_value/max_value for range filtering
 
         Returns:
             Tuple of (best_result, selected_provider)
         """
-        best = None
-        best_confidence = 0
+        min_val = getattr(camera, 'min_value', None) if camera else None
+        max_val = getattr(camera, 'max_value', None) if camera else None
+        has_range = min_val is not None or max_val is not None
+
+        best_in_range = None
+        best_in_range_conf = 0
+        best_any = None
+        best_any_conf = 0
 
         for result in results:
-            if result.value is not None and result.confidence > best_confidence:
-                best = result
-                best_confidence = result.confidence
+            if result.value is not None:
+                if result.confidence > best_any_conf:
+                    best_any = result
+                    best_any_conf = result.confidence
+                if has_range and self._is_value_in_range(result.value, min_val, max_val):
+                    if result.confidence > best_in_range_conf:
+                        best_in_range = result
+                        best_in_range_conf = result.confidence
 
-        if best is None and results:
+        # Prefer in-range result, fall back to any result
+        if best_in_range is not None:
+            if best_any and best_any != best_in_range:
+                logger.debug(f"Range filter: chose {best_in_range.value} "
+                    f"({best_in_range.provider}, {best_in_range.confidence:.0f}%) over "
+                    f"{best_any.value} ({best_any.provider}, {best_any.confidence:.0f}%) "
+                    f"- in range [{min_val}-{max_val}]")
+            return best_in_range, best_in_range.provider
+
+        if best_any is not None:
+            return best_any, best_any.provider
+
+        if results:
             # Return first result with any value
             for result in results:
                 if result.value is not None:
@@ -2787,7 +2828,7 @@ class CameraProcessor:
             # Return first result even if no value
             return results[0], results[0].provider
 
-        return best, best.provider if best else 'none'
+        return None, 'none'
 
     def extract_value(self, camera: CameraConfig, frame: np.ndarray) -> ExtractedValue:
         """Extract numeric value from frame with optional template matching and multi-provider support."""
@@ -2854,8 +2895,8 @@ class CameraProcessor:
                 provider_results.append(result)
                 logger.debug(f"Provider {provider}: value={result.value}, confidence={result.confidence}")
 
-            # Select best result
-            best_result, selected_provider = self._select_best_result(provider_results)
+            # Select best result (range-aware if camera has min/max configured)
+            best_result, selected_provider = self._select_best_result(provider_results, camera)
 
             if best_result:
                 # Convert value to float - always positive
@@ -2959,8 +3000,8 @@ class CameraProcessor:
                 result = self._run_provider(provider, roi_frame, camera or CameraConfig(name='_test_', stream_url='', preprocessing=preprocessing), provider_config)
                 provider_results.append(result)
 
-            # Select best result
-            best_result, selected_provider = self._select_best_result(provider_results)
+            # Select best result (range-aware if camera has min/max configured)
+            best_result, selected_provider = self._select_best_result(provider_results, camera)
 
             # Encode processed image for preview (use grayscale preprocessed version)
             processed = self.preprocess_image(roi_frame, preprocessing)
