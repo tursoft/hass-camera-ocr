@@ -2205,6 +2205,7 @@ class CameraProcessor:
                     ocr_providers=cam_config.get('ocr_providers', ['tesseract']),
                     provider_configs=cam_config.get('provider_configs', {}),
                     use_ml_roi_locator=cam_config.get('use_ml_roi_locator', False),
+                    views=cam_config.get('views', []),
                 )
                 self.cameras[camera.name] = camera
                 # Log OCR config for debugging

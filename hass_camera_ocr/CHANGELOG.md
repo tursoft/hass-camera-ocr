@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.49] - 2026
+
+### Fixed
+- **Views not persisting after refresh**: Fixed `load_config` missing the `views` field when constructing `CameraConfig` from saved JSON data. Views were saved correctly but never loaded back into memory.
+
 ## [1.2.48] - 2026
 
 ### Added
