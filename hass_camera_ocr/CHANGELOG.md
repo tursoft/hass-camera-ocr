@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.50] - 2026
+
+### Fixed
+- **EasyOCR and PaddleOCR not available**: Removed architecture-specific restrictions that prevented installation on aarch64/armv7/armhf. Both packages now attempt installation on all architectures with graceful fallback
+- **Missing torchvision dependency**: Added `torchvision` to PyTorch install step (required by EasyOCR)
+- **Missing system dependencies**: Added `py3-scipy` and `openblas` Alpine packages needed by EasyOCR's scipy/scikit-image dependencies
+
 ## [1.2.49] - 2026
 
 ### Fixed

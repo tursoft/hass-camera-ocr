@@ -10,12 +10,14 @@ RUN apk add --no-cache \
     py3-pip \
     py3-numpy \
     py3-scikit-learn \
+    py3-scipy \
     tesseract-ocr \
     tesseract-ocr-data-eng \
     nginx \
     libstdc++ \
     libgcc \
     libgomp \
+    openblas \
     ffmpeg \
     ffmpeg-libs
 
@@ -29,24 +31,24 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     requests \
     Pillow
 
-# Install PyTorch CPU-only version
+# Install PyTorch CPU-only version (torch + torchvision needed by EasyOCR and ML provider)
 RUN pip3 install --no-cache-dir --break-system-packages \
     --index-url https://download.pytorch.org/whl/cpu \
-    torch
+    torch torchvision
 
 # Install transformers
 RUN pip3 install --no-cache-dir --break-system-packages \
     transformers
 
-# Install EasyOCR (only on amd64/i386 - no pre-built wheels for ARM)
-RUN if [ "$BUILD_ARCH" = "amd64" ] || [ "$BUILD_ARCH" = "i386" ]; then \
-        pip3 install --no-cache-dir --break-system-packages easyocr || true; \
-    fi
+# Install EasyOCR (try on all architectures - PyTorch is already installed)
+RUN pip3 install --no-cache-dir --break-system-packages easyocr \
+    && echo "EasyOCR installed successfully" \
+    || echo "WARNING: EasyOCR installation failed on $BUILD_ARCH"
 
-# Install PaddleOCR (only on amd64 - PaddlePaddle has limited ARM support)
-RUN if [ "$BUILD_ARCH" = "amd64" ]; then \
-        pip3 install --no-cache-dir --break-system-packages paddlepaddle paddleocr || true; \
-    fi
+# Install PaddleOCR (try on all architectures with fallback)
+RUN pip3 install --no-cache-dir --break-system-packages paddlepaddle paddleocr \
+    && echo "PaddleOCR installed successfully" \
+    || echo "WARNING: PaddleOCR installation failed on $BUILD_ARCH"
 
 # Copy application files
 COPY rootfs /

@@ -1,6 +1,6 @@
 name: Camera OCR
 description: Extract numeric values from IP camera video streams using OCR
-version: 1.2.49
+version: 1.2.50
 slug: hass_camera_ocr
 url: https://github.com/tursoft/hass-camera-ocr
 arch:
