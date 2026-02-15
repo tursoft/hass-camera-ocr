@@ -19,7 +19,20 @@ RUN apk add --no-cache \
     libgomp \
     openblas \
     ffmpeg \
-    ffmpeg-libs
+    ffmpeg-libs \
+    gcompat
+
+# Install build dependencies for compiling Python packages on Alpine/musl
+RUN apk add --no-cache --virtual .build-deps \
+    build-base \
+    python3-dev \
+    gfortran \
+    openblas-dev \
+    jpeg-dev \
+    zlib-dev \
+    freetype-dev \
+    lcms2-dev \
+    libffi-dev
 
 # Install Python packages (using pre-built wheels where possible)
 RUN pip3 install --no-cache-dir --break-system-packages \
@@ -40,15 +53,21 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 RUN pip3 install --no-cache-dir --break-system-packages \
     transformers
 
-# Install EasyOCR (try on all architectures - PyTorch is already installed)
-RUN pip3 install --no-cache-dir --break-system-packages easyocr \
-    && echo "EasyOCR installed successfully" \
-    || echo "WARNING: EasyOCR installation failed on $BUILD_ARCH"
+# Install EasyOCR and its dependencies
+RUN pip3 install --no-cache-dir --break-system-packages \
+    scikit-image \
+    easyocr \
+    && echo "=== EasyOCR installed successfully ===" \
+    || echo "=== WARNING: EasyOCR installation failed on $BUILD_ARCH ==="
 
-# Install PaddleOCR (try on all architectures with fallback)
-RUN pip3 install --no-cache-dir --break-system-packages paddlepaddle paddleocr \
-    && echo "PaddleOCR installed successfully" \
-    || echo "WARNING: PaddleOCR installation failed on $BUILD_ARCH"
+# Install PaddleOCR (paddlepaddle may not have musl/ARM wheels)
+RUN pip3 install --no-cache-dir --break-system-packages \
+    paddlepaddle paddleocr \
+    && echo "=== PaddleOCR installed successfully ===" \
+    || echo "=== WARNING: PaddleOCR installation failed on $BUILD_ARCH ==="
+
+# Remove build dependencies to reduce image size
+RUN apk del .build-deps 2>/dev/null || true
 
 # Copy application files
 COPY rootfs /

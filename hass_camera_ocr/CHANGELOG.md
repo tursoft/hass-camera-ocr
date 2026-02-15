@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.51] - 2026
+
+### Fixed
+- **EasyOCR and PaddleOCR installation failing on Alpine**: Added build toolchain (`build-base`, `python3-dev`, `gfortran`, `openblas-dev`, etc.) so pip packages with C extensions can compile from source on Alpine/musl
+- **Added gcompat**: Installed glibc compatibility layer for pre-built manylinux wheels on Alpine
+- **Explicit scikit-image install**: Added scikit-image as explicit dependency before EasyOCR
+- Build dependencies are cleaned up after installation to minimize image size
+
 ## [1.2.50] - 2026
 
 ### Fixed
