@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.53] - 2026
+
+### Added
+- **OpenRouter provider**: Access 100+ AI models through a single API key via OpenRouter's OpenAI-compatible endpoint. Default model: `google/gemini-2.0-flash-001`. Supports any vision-capable model available on OpenRouter
+
 ## [1.2.52] - 2026
 
 ### Added

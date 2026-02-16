@@ -1080,7 +1080,8 @@ class AIService:
         'azure-ocr': 'read',
         'aws-textract': 'detect-document-text',
         'mistral-ocr': 'mistral-ocr-latest',
-        'huggingface': 'zai-org/GLM-4.5V'
+        'huggingface': 'zai-org/GLM-4.5V',
+        'openrouter': 'google/gemini-2.0-flash-001'
     }
 
     _config: Optional[AIProviderConfig] = None
@@ -1664,6 +1665,48 @@ class AIService:
         )
 
         with urllib.request.urlopen(req, timeout=60) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            return result['choices'][0]['message']['content'].strip()
+
+    @classmethod
+    def _call_openrouter(cls, image_base64: str, task: str, api_key: str = None, model: str = None) -> str:
+        """Call OpenRouter API (OpenAI-compatible, aggregates many AI models)."""
+        import urllib.request
+
+        if not api_key:
+            config = cls.load_config()
+            api_key = config.api_key
+            model = model or config.model
+
+        model = model or cls.DEFAULT_MODELS['openrouter']
+
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {api_key}',
+            'HTTP-Referer': 'https://github.com/tursoft/hass-camera-ocr',
+            'X-Title': 'Camera OCR'
+        }
+
+        data = {
+            'model': model,
+            'messages': [{
+                'role': 'user',
+                'content': [
+                    {'type': 'text', 'text': cls._get_prompt(task)},
+                    {'type': 'image_url', 'image_url': {'url': f'data:image/jpeg;base64,{image_base64}'}}
+                ]
+            }],
+            'max_tokens': 300
+        }
+
+        req = urllib.request.Request(
+            'https://openrouter.ai/api/v1/chat/completions',
+            data=json.dumps(data).encode('utf-8'),
+            headers=headers,
+            method='POST'
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as response:
             result = json.loads(response.read().decode('utf-8'))
             return result['choices'][0]['message']['content'].strip()
 
@@ -2960,7 +3003,7 @@ class CameraProcessor:
                 else:
                     return ProviderResult(provider=provider, value=None, raw_text='', confidence=0, error='No text extracted')
 
-            elif provider in ['openai', 'anthropic', 'google', 'ollama', 'custom', 'huggingface']:
+            elif provider in ['openai', 'anthropic', 'google', 'ollama', 'custom', 'huggingface', 'openrouter']:
                 # AI vision providers
                 _, buffer = cv2.imencode('.jpg', roi_frame)
                 image_base64 = base64.b64encode(buffer).decode('utf-8')
@@ -2972,6 +3015,8 @@ class CameraProcessor:
 
                 if provider == 'huggingface':
                     result = AIService._call_huggingface(image_base64, 'ocr', api_key, api_url, model)
+                elif provider == 'openrouter':
+                    result = AIService._call_openrouter(image_base64, 'ocr', api_key, model)
                 else:
                     result = AIService.enhance_ocr(image_base64, "extract numeric value only, respond with just the number", camera)
 
