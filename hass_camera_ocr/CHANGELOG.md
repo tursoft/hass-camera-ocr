@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.52] - 2026
+
+### Added
+- **Mistral OCR provider**: Dedicated OCR endpoint using `mistral-ocr-latest` model via Mistral AI's `/v1/ocr` API. Extracts text from images with high accuracy for digital displays
+- **Hugging Face Inference API provider**: Vision-language model support via HF's OpenAI-compatible chat completion API. Default model: `zai-org/GLM-4.5V`. Supports custom Inference Endpoints via URL override
+
 ## [1.2.51] - 2026
 
 ### Fixed

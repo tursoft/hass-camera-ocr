@@ -1078,7 +1078,9 @@ class AIService:
         'google-vision': 'document-text-detection',
         'google-docai': 'ocr-processor',
         'azure-ocr': 'read',
-        'aws-textract': 'detect-document-text'
+        'aws-textract': 'detect-document-text',
+        'mistral-ocr': 'mistral-ocr-latest',
+        'huggingface': 'zai-org/GLM-4.5V'
     }
 
     _config: Optional[AIProviderConfig] = None
@@ -1573,6 +1575,97 @@ class AIService:
         except Exception as e:
             logger.error(f"AWS Textract error: {e}")
             return 'none'
+
+    @classmethod
+    def _call_mistral_ocr(cls, image_base64: str, api_key: str = None) -> str:
+        """Call Mistral OCR API (dedicated OCR endpoint)."""
+        import urllib.request
+
+        if not api_key:
+            config = cls.load_config()
+            api_key = config.api_key
+
+        url = 'https://api.mistral.ai/v1/ocr'
+
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {api_key}'
+        }
+
+        data = {
+            'model': cls.DEFAULT_MODELS['mistral-ocr'],
+            'document': {
+                'type': 'image_url',
+                'image_url': f'data:image/jpeg;base64,{image_base64}'
+            }
+        }
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(data).encode('utf-8'),
+            headers=headers,
+            method='POST'
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            # Extract text from pages[].markdown
+            pages = result.get('pages', [])
+            full_text = ' '.join(p.get('markdown', '') for p in pages).strip()
+            # Extract numeric value from the text
+            numbers = re.findall(r'[-+]?\d*\.?\d+', full_text)
+            if numbers:
+                return numbers[0]
+            return 'none'
+
+    @classmethod
+    def _call_huggingface(cls, image_base64: str, task: str, api_key: str = None, api_url: str = None, model: str = None) -> str:
+        """Call Hugging Face Inference API (OpenAI-compatible chat completion with vision)."""
+        import urllib.request
+
+        if not api_key:
+            config = cls.load_config()
+            api_key = config.api_key
+            api_url = api_url or config.api_url
+            model = model or config.model
+
+        model = model or cls.DEFAULT_MODELS['huggingface']
+
+        # Support custom Inference Endpoints or default HF Inference API
+        if api_url:
+            api_url = api_url.rstrip('/')
+            if not api_url.endswith('/v1/chat/completions'):
+                api_url = f'{api_url}/v1/chat/completions'
+        else:
+            api_url = f'https://api-inference.huggingface.co/models/{model}/v1/chat/completions'
+
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {api_key}'
+        }
+
+        data = {
+            'model': model,
+            'messages': [{
+                'role': 'user',
+                'content': [
+                    {'type': 'text', 'text': cls._get_prompt(task)},
+                    {'type': 'image_url', 'image_url': {'url': f'data:image/jpeg;base64,{image_base64}'}}
+                ]
+            }],
+            'max_tokens': 300
+        }
+
+        req = urllib.request.Request(
+            api_url,
+            data=json.dumps(data).encode('utf-8'),
+            headers=headers,
+            method='POST'
+        )
+
+        with urllib.request.urlopen(req, timeout=60) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            return result['choices'][0]['message']['content'].strip()
 
 
 class MLService:
@@ -2840,7 +2933,7 @@ class CameraProcessor:
                     return ProviderResult(provider='paddleocr', value=None, raw_text='',
                                          confidence=0, error=str(e))
 
-            elif provider in ['google-vision', 'azure-ocr', 'aws-textract']:
+            elif provider in ['google-vision', 'azure-ocr', 'aws-textract', 'mistral-ocr']:
                 # Cloud OCR providers
                 _, buffer = cv2.imencode('.jpg', roi_frame)
                 image_base64 = base64.b64encode(buffer).decode('utf-8')
@@ -2856,6 +2949,8 @@ class CameraProcessor:
                 elif provider == 'aws-textract':
                     region = config.get('region', camera.ai_region)
                     result = AIService._call_aws_textract(image_base64, api_key, config.get('secret_key', ''), region)
+                elif provider == 'mistral-ocr':
+                    result = AIService._call_mistral_ocr(image_base64, api_key)
 
                 if result and result != 'none':
                     # Extract numeric value - always positive
@@ -2865,7 +2960,7 @@ class CameraProcessor:
                 else:
                     return ProviderResult(provider=provider, value=None, raw_text='', confidence=0, error='No text extracted')
 
-            elif provider in ['openai', 'anthropic', 'google', 'ollama', 'custom']:
+            elif provider in ['openai', 'anthropic', 'google', 'ollama', 'custom', 'huggingface']:
                 # AI vision providers
                 _, buffer = cv2.imencode('.jpg', roi_frame)
                 image_base64 = base64.b64encode(buffer).decode('utf-8')
@@ -2875,7 +2970,10 @@ class CameraProcessor:
                 api_url = config.get('api_url', camera.ai_api_url)
                 model = config.get('model', camera.ai_model)
 
-                result = AIService.enhance_ocr(image_base64, "extract numeric value only, respond with just the number", camera)
+                if provider == 'huggingface':
+                    result = AIService._call_huggingface(image_base64, 'ocr', api_key, api_url, model)
+                else:
+                    result = AIService.enhance_ocr(image_base64, "extract numeric value only, respond with just the number", camera)
 
                 if result and result != 'none':
                     # Extract numeric value - always positive
